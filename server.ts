@@ -200,7 +200,14 @@ async function startServer() {
   });
 
   // Start periodic high-frequency trade simulation (Targets 200 trades/day goal)
-  setInterval(() => simulateTrade(db), 15000); 
+  // This logic runs 24/7 as long as the server process is alive.
+  setInterval(() => {
+    try {
+      simulateTrade(db);
+    } catch (err) {
+      console.error('24/7 Execution Logic Error:', err);
+    }
+  }, 12000); // Increased frequency slightly to ensure ~200-300 trades/day uptime
 
   // WebSocket handling
   wss.on('connection', (ws) => {
