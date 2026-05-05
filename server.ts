@@ -82,7 +82,7 @@ function simulateTrade(db: any) {
 
   if (mode === 'paper') {
     const newBalance = balance + pnl;
-    db.prepare('UPDATE bot_state SET value = ? WHERE key = "paper_balance"').run(newBalance.toString());
+    db.prepare("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'").run(newBalance.toString());
   }
 }
 
@@ -110,7 +110,7 @@ async function startServer() {
       const state: any = {};
       stateRows.forEach((row: any) => state[row.key] = row.value);
       
-      const config = db.prepare('SELECT * FROM strategy_config WHERE strategy_id = "default"').get();
+      const config = db.prepare("SELECT * FROM strategy_config WHERE strategy_id = 'default'").get();
 
       // Logic: Real account is empty unless we have an API key (mocking exchange check)
       const hasApiKey = process.env.BINANCE_API_KEY || process.env.BITGET_API_KEY;
@@ -138,7 +138,7 @@ async function startServer() {
       const stmt = db.prepare(`
         UPDATE strategy_config 
         SET rsi_period = ?, ema_short = ?, ema_long = ?, macd_fast = ?, macd_slow = ?
-        WHERE strategy_id = "default"
+        WHERE strategy_id = 'default'
       `);
       stmt.run(rsi_period, ema_short, ema_long, macd_fast, macd_slow);
       res.json({ success: true });
@@ -151,9 +151,9 @@ async function startServer() {
   app.post('/api/bot/settings', apiKeyGuard, (req, res) => {
     try {
       const { mode, exchange, paper_balance } = req.body;
-      if (mode) db.prepare('UPDATE bot_state SET value = ? WHERE key = "mode"').run(mode);
-      if (exchange) db.prepare('UPDATE bot_state SET value = ? WHERE key = "exchange"').run(exchange);
-      if (paper_balance !== undefined) db.prepare('UPDATE bot_state SET value = ? WHERE key = "paper_balance"').run(paper_balance.toString());
+      if (mode) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'mode'").run(mode);
+      if (exchange) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'exchange'").run(exchange);
+      if (paper_balance !== undefined) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'").run(paper_balance.toString());
       res.json({ success: true });
     } catch (err) {
       console.error('API Settings Error:', err);
