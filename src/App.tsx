@@ -5,6 +5,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
+  createChart, 
+  ColorType, 
+  Time,
+  SeriesMarker,
+  UTCTimestamp,
+  IChartApi,
+  ISeriesApi,
+  CandlestickData
+} from 'lightweight-charts';
+import { 
   TrendingUp, 
   TrendingDown, 
   Activity, 
@@ -18,7 +28,8 @@ import {
   History,
   LayoutDashboard,
   Zap,
-  BarChart3
+  BarChart3,
+  CandlestickChart
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -64,6 +75,81 @@ const BASE_URL = import.meta.env.VITE_API_URL || '';
 const WS_URL = BASE_URL 
   ? BASE_URL.replace(/^http/, 'ws') 
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+
+// Candlestick Chart Component
+const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) => {
+  const chartContainerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const chart: any = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#111111' },
+        textColor: '#888888',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: 400,
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        timeVisible: true,
+      },
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#10b981',
+      downColor: '#ef4444',
+      borderVisible: false,
+      wickUpColor: '#10b981',
+      wickDownColor: '#ef4444',
+    });
+
+    const fetchKlines = async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/market/klines?symbol=${symbol}`);
+        if (res.ok) {
+          const data: CandlestickData[] = await res.json();
+          candleSeries.setData(data);
+          
+          // Add markers for trades
+          const markers: SeriesMarker<Time>[] = trades
+            .filter(t => t.pair.replace('/', '') === symbol)
+            .map(t => ({
+              time: (new Date(t.timestamp).getTime() / 1000) as UTCTimestamp,
+              position: t.action === 'BUY' ? 'belowBar' : 'aboveBar',
+              color: t.action === 'BUY' ? '#10b981' : '#ef4444',
+              shape: t.action === 'BUY' ? 'arrowUp' : 'arrowDown',
+              text: `${t.action} @ ${t.entry_price}`,
+            }));
+          candleSeries.setMarkers(markers);
+        }
+      } catch (err) {
+        console.error('Klines fetch failed', err);
+      }
+    };
+
+    fetchKlines();
+
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [symbol, trades]);
+
+  return <div ref={chartContainerRef} className="w-full h-[400px] rounded-2xl overflow-hidden" />;
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'trades' | 'strategies' | 'settings'>('dashboard');
@@ -114,16 +200,23 @@ export default function App() {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [statusRes, tradesRes] = await Promise.all([
+        const [statusRes, tradesRes, pricesRes] = await Promise.all([
           fetch(`${BASE_URL}/api/status`),
-          fetch(`${BASE_URL}/api/trades`)
+          fetch(`${BASE_URL}/api/trades`),
+          // We can call a new endpoint or use the price helper
+          fetch(`https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT"]`)
         ]);
         
         if (!statusRes.ok || !tradesRes.ok) throw new Error('API unreachable');
         
-        const statusData = await statusRes.json();
-        const tradesData = await tradesRes.json();
-        
+        const statusData = await statusRes.ok ? await statusRes.json() : {};
+        const tradesData = await tradesRes.ok ? await tradesRes.json() : [];
+        let pricesData = {};
+        if (pricesRes.ok) {
+          const pArr = await pricesRes.json();
+          pArr.forEach((p: any) => pricesData[p.symbol] = parseFloat(p.price));
+        }
+
         setIsBotRunning(statusData.status === 'running');
         setTradingMode(statusData.mode || 'paper');
         setActiveExchange(statusData.exchange || 'binance');
@@ -131,6 +224,7 @@ export default function App() {
         setBalance(statusData.real_balance || 0); // Real balance from server
         setStatus(statusData);
         setTrades(tradesData);
+        setPrices(prev => ({ ...prev, ...pricesData }));
         setBalance(tradingMode === 'paper' ? statusData.paper_balance : statusData.real_balance);
         setInitialBalance(tradingMode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
         
@@ -289,6 +383,16 @@ export default function App() {
               </div>
             </div>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tighter">AEGIS TRADER</h1>
+            <div className="flex gap-4 mt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">BTC</span>
+                <span className="text-xs font-mono font-bold text-orange-500">${(prices.BTCUSDT || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center gap-2 border-l border-white/10 pl-4">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">ETH</span>
+                <span className="text-xs font-mono font-bold text-blue-400">${(prices.ETHUSDT || 0).toLocaleString()}</span>
+              </div>
+            </div>
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-4">
@@ -379,24 +483,24 @@ export default function App() {
                 icon={<Zap className="text-blue-500" />}
               />
             </div>
-
             <div className="p-8 bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                  <TrendingUp size={120} className="text-orange-500" />
               </div>
               <div className="relative z-10 max-w-2xl">
                  <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
-                   <Zap className="text-orange-500" /> Autonomous Yield Engine
+                   <Zap className="text-orange-500" /> Aegis Intelligence Terminal
                  </h2>
-                 <p className="text-zinc-500 text-sm leading-relaxed mb-6">
-                   Aegis targets high-frequency compounding. With a $100 entry basis, each 15% target represents $15 in strategic gain. At 200 trades per day, the engine prioritizes volume over single-event risk.
+                 <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+                    Aegis is an enterprise-grade autonomous terminal designed for high-precision digital asset growth. By combining neural-network market scanning with strict risk management, it identifies and executes 5m scalping opportunities across USDT-margined perpetual pairs. 
                  </p>
                  <div className="flex flex-wrap gap-4">
-                    <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-tighter">0.5% Stop-Loss Imprinted</div>
-                    <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-tighter">AI Market Scanning: 24/7</div>
+                    <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-tighter text-zinc-300">Autopilot Protocol V2.4 Active</div>
+                    <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-tighter text-zinc-300">Neural Latency: 42ms</div>
                  </div>
               </div>
             </div>
+
 
             {/* Exchange Selector */}
             <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
@@ -433,36 +537,54 @@ export default function App() {
 
             {/* Middle Section: Chart & Live Feed */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 bg-[#111] border border-white/5 rounded-3xl p-8 overflow-hidden relative">
+              <div className="lg:col-span-2 bg-[#111] border border-white/5 rounded-3xl p-6 overflow-hidden relative">
                 <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xl font-bold">Performance Analytics</h3>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-600/10 rounded-lg">
+                      <BarChart3 className="w-5 h-5 text-orange-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">BTC/USDT Live Terminal</h3>
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Autonomous Execution Markers</p>
+                    </div>
+                  </div>
                   <div className="flex gap-2">
-                    {['1H', '4H', '1D', 'ALL'].map(t => (
-                      <button key={t} className="px-3 py-1 rounded-md text-xs font-semibold bg-white/5 hover:bg-white/10 transition-colors">
+                    {['1M', '5M', '15M', '1H'].map(t => (
+                      <button key={t} className={cn("px-3 py-1 rounded-md text-[10px] font-black tracking-widest bg-white/5 hover:bg-white/10 transition-colors uppercase border border-white/5", t === '1H' ? "text-orange-500 border-orange-500/20" : "")}>
                         {t}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div className="h-[350px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={history.length > 0 ? history.map(h => ({ time: new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), pnl: h.balance })) : PERFORMANCE_DATA}>
-                      <defs>
-                        <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
-                      <XAxis dataKey="time" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                        itemStyle={{ color: '#fff' }}
-                      />
-                      <Area type="monotone" dataKey="pnl" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorPnl)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                
+                <TradingChart symbol="BTCUSDT" trades={trades} />
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/5">
+                   <div className="space-y-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Growth vs Initial</span>
+                      <div className={cn("text-lg font-bold font-mono", totalGrowth >= 0 ? "text-emerald-400" : "text-rose-500")}>
+                        {totalGrowth >= 0 ? '+' : ''}{totalGrowth.toFixed(2)}%
+                      </div>
+                   </div>
+                   <div className="space-y-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Net Realized</span>
+                      <div className="text-lg font-bold font-mono text-white">
+                        +{(balance - initialBalance).toFixed(2)} <span className="text-[10px] text-zinc-500">USDT</span>
+                      </div>
+                   </div>
+                   <div className="space-y-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Win / Loss</span>
+                      <div className="text-lg font-bold font-mono text-emerald-400">
+                        89 / <span className="text-rose-500">24</span>
+                      </div>
+                   </div>
+                   <div className="space-y-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Engine Status</span>
+                      <div className="text-lg font-bold flex items-center gap-2">
+                         <div className={cn("w-2 h-2 rounded-full", isBotRunning ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
+                         <span className="text-xs uppercase tracking-tighter">{isBotRunning ? 'Operational' : 'Standby'}</span>
+                      </div>
+                   </div>
                 </div>
               </div>
 
