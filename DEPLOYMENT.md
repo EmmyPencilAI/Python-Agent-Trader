@@ -23,7 +23,7 @@ This application is a full-stack Node.js (React + Express) app that manages a Py
 1. **Build Command**: `npm run build`
 2. **Publish Directory**: `dist` (CRITICAL: Do not leave blank)
 3. **Environment Variables**:
-   - `VITE_API_URL`: Your Render backend URL (e.g., `https://aegis-python.onrender.com`).
+   - `VITE_API_URL`: Your Render backend URL (e.g., `https://aegis-trader.onrender.com`).
    - If not set, the app will try to call its own domain (which will fail if the backend is elsewhere).
 
 ### ⚠️ Netlify Failure

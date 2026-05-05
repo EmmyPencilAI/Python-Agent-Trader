@@ -70,6 +70,11 @@ class TradingEngine:
                 balance = float(bal_data.get('USDT', {}).get('free', 0.0))
                 # Sync real balance back to DB for Dashboard visibility
                 self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(balance)))
+                # Set initial if it is 0
+                cursor = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'")
+                row = cursor.fetchone()
+                if not row or row[0] == '0':
+                    self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(balance)))
                 self.db.conn.commit()
             except Exception as e:
                 logger.error(f"Error fetching balance from {self.exchange.id}: {e}")
@@ -148,18 +153,29 @@ class TradingEngine:
 
     def run(self):
         logger.info("Bot logic ready...")
+        last_balance_record = 0
+        
         while True:
             # Refresh state every loop to detect Web Dashboard changes
             self._sync_state_from_db()
             
             # Re-init exchange if it changed in settings
-            if self.exchange.id != self.active_exchange_id:
+            if not self.exchange or self.exchange.id != self.active_exchange_id:
                 try:
                     self.exchange = self._init_exchange()
                 except Exception as e:
                     logger.error(f"Failed to switch exchange: {e}")
+                    time.sleep(10)
+                    continue
 
             if self.is_running:
+                # Periodic balance history recording (every ~10 scans)
+                if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
+                    current_bal = self.get_usdt_balance()
+                    self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, current_bal))
+                    self.db.conn.commit()
+                    last_balance_record = time.time()
+
                 for symbol in Config.SYMBOLS:
                     try:
                         df = self.get_market_data(symbol)

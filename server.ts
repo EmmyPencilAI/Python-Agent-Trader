@@ -11,28 +11,6 @@ import { spawn } from 'child_process';
 
 dotenv.config();
 
-async function getRealPrices() {
-  try {
-    const symbols = '["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","ADAUSDT"]';
-    const response = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbols=${symbols}`);
-    const prices: any = {};
-    response.data.forEach((ticker: any) => {
-      prices[ticker.symbol] = parseFloat(ticker.price);
-    });
-    return prices;
-  } catch (error) {
-    console.error('Error fetching real prices:', error);
-    // Fallback to approximate prices
-    return {
-      BTCUSDT: 81000,
-      ETHUSDT: 3000,
-      SOLUSDT: 200,
-      BNBUSDT: 600,
-      ADAUSDT: 0.5
-    };
-  }
-}
-
 const db = new Database('database.sqlite');
 let pythonProcess: any = null;
 
@@ -106,11 +84,21 @@ db.exec(`
     macd_fast INTEGER DEFAULT 12,
     macd_slow INTEGER DEFAULT 26
   );
+  CREATE TABLE IF NOT EXISTS balance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode TEXT,
+    balance REAL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'stopped');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('mode', 'paper');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'binance');
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '0');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_paper_balance', '1000');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_real_balance', '0');
   INSERT OR IGNORE INTO strategy_config (strategy_id) VALUES ('default');
+  CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode);
+  CREATE INDEX IF NOT EXISTS idx_history_mode ON balance_history(mode);
 `);
 
 // Live Market Data and Real Account Logic
@@ -180,6 +168,9 @@ function simulateTrade(db: any) {
     if (mode === 'paper') {
       const newBalance = balance + pnl;
       db.prepare("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'").run(newBalance.toString());
+      db.prepare("INSERT INTO balance_history (mode, balance) VALUES ('paper', ?)").run(newBalance);
+    } else {
+      db.prepare("INSERT INTO balance_history (mode, balance) VALUES ('real', ?)").run(balance + pnl);
     }
   });
 }
@@ -200,6 +191,16 @@ async function startServer() {
       bot_alive: pythonProcess !== null,
       timestamp: new Date().toISOString()
     });
+  });
+
+  app.get('/api/history', async (req, res) => {
+    try {
+      const mode = req.query.mode || 'paper';
+      const history = db.prepare('SELECT balance, timestamp FROM balance_history WHERE mode = ? ORDER BY timestamp ASC LIMIT 100').all(mode);
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch history' });
+    }
   });
 
   // API Middleware
@@ -224,6 +225,8 @@ async function startServer() {
       const exchange = state.exchange || 'binance';
       const realBalance = await getAccountBalance(db, 'real');
       const paperBalance = await getAccountBalance(db, 'paper');
+      const initialReal = db.prepare("SELECT value FROM bot_state WHERE key = 'initial_real_balance'").get() as any;
+      const initialPaper = db.prepare("SELECT value FROM bot_state WHERE key = 'initial_paper_balance'").get() as any;
 
       res.json({
         status: state.running || 'stopped',
@@ -231,6 +234,8 @@ async function startServer() {
         exchange: exchange,
         paper_balance: paperBalance,
         real_balance: realBalance,
+        initial_real_balance: parseFloat(initialReal?.value || '0'),
+        initial_paper_balance: parseFloat(initialPaper?.value || '1000'),
         active_strategy: state.active_strategy || 'Scalping Elite',
         algo_settings: config,
         uptime: '24h 15m'
@@ -327,12 +332,14 @@ async function startServer() {
     console.log('Client connected to WebSocket');
     
     // Simulate live data stream
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        const prices = await getRealPrices();
         ws.send(JSON.stringify({
           type: 'PRICE_UPDATE',
-          data: prices
+          data: {
+            BTCUSDT: 65000 + Math.random() * 100,
+            ETHUSDT: 3500 + Math.random() * 10
+          }
         }));
       }
     }, 2000);
@@ -359,7 +366,7 @@ async function startServer() {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     
     // Resume bot if it was running before server restart
-    const state = db.prepare('SELECT value FROM bot_state WHERE key = "running"').get() as any;
+    const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
     if (state && state.value === 'running') {
       managePythonBot('running');
     }

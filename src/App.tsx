@@ -71,9 +71,11 @@ export default function App() {
   const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
   const [activeExchange, setActiveExchange] = useState('binance');
   const [paperBalance, setPaperBalance] = useState(1000);
-  const [balance, setBalance] = useState(0.00); // Start at zero for real
+  const [balance, setBalance] = useState(0.00); 
+  const [initialBalance, setInitialBalance] = useState(0.00);
+  const [history, setHistory] = useState<{balance: number, timestamp: string}[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 65420.12, ETHUSDT: 3421.55 });
+  const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 81240.50, ETHUSDT: 3421.55 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
@@ -129,6 +131,15 @@ export default function App() {
         setBalance(statusData.real_balance || 0); // Real balance from server
         setStatus(statusData);
         setTrades(tradesData);
+        setBalance(tradingMode === 'paper' ? statusData.paper_balance : statusData.real_balance);
+        setInitialBalance(tradingMode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
+        
+        // Fetch history
+        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${tradingMode}`);
+        if (historyRes.ok) {
+          const historyData = await historyRes.json();
+          setHistory(historyData);
+        }
       } catch (err) {
         addNotification('error', `Connection Failed: Pointing to ${BASE_URL || 'local server'}. Please check VITE_API_URL.`);
       }
@@ -214,6 +225,8 @@ export default function App() {
   const currentPnL = useMemo(() => {
     return trades.reduce((acc, trade) => acc + (trade.pnl || 0), 0);
   }, [trades]);
+
+  const totalGrowth = initialBalance === 0 ? 0 : ((balance - initialBalance) / initialBalance) * 100;
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500/30">
@@ -329,7 +342,21 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
             {/* Top Grid: High Level Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              <StatsCard
+                label="Available Liquidity"
+                value={`${balance.toLocaleString()} USDT`}
+                change={tradingMode === 'paper' ? "Virtual Assets" : (balance > 0 ? "Live Account" : "Connect API")}
+                trend={balance > initialBalance ? "up" : (balance < initialBalance ? "down" : "neutral")}
+                icon={<ShieldCheck className="text-orange-500" />}
+              />
+              <StatsCard
+                label="Portfolio Growth"
+                value={`${totalGrowth >= 0 ? '+' : ''}${totalGrowth.toFixed(2)}%`}
+                change={`Initial: ${initialBalance.toLocaleString()} USDT`}
+                trend={totalGrowth >= 0 ? "up" : "down"}
+                icon={<TrendingUp className={totalGrowth >= 0 ? "text-emerald-500" : "text-rose-500"} />}
+              />
               <StatsCard
                 label="Daily Trade Target"
                 value="200 Trades"
@@ -419,7 +446,7 @@ export default function App() {
                 </div>
                 <div className="h-[350px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={PERFORMANCE_DATA}>
+                    <AreaChart data={history.length > 0 ? history.map(h => ({ time: new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), pnl: h.balance })) : PERFORMANCE_DATA}>
                       <defs>
                         <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
