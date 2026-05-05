@@ -3,15 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component, ReactNode } from 'react';
 import { 
   createChart, 
   ColorType, 
   Time,
   SeriesMarker,
   UTCTimestamp,
-  IChartApi,
-  ISeriesApi,
+  CandlestickSeries,
   CandlestickData
 } from 'lightweight-charts';
 import { 
@@ -94,7 +93,7 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
         vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
         horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
       },
-      width: chartContainerRef.current.clientWidth,
+      width: chartContainerRef.current.clientWidth || 600,
       height: 400,
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -102,7 +101,7 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
       },
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
       borderVisible: false,
@@ -151,26 +150,31 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
   }, [symbol]);
 
   useEffect(() => {
-    if (candleSeriesRef.current && trades) {
-      const markers: SeriesMarker<Time>[] = trades
-        .filter(t => t.pair && t.pair.replace('/', '') === symbol)
-        .map(t => {
-          const date = new Date(t.timestamp);
-          const time = (isNaN(date.getTime()) ? Date.now() : date.getTime()) / 1000;
-          return {
-            time: time as UTCTimestamp,
-            position: t.action === 'BUY' ? 'belowBar' : 'aboveBar',
-            color: t.action === 'BUY' ? '#10b981' : '#ef4444',
-            shape: t.action === 'BUY' ? 'arrowUp' : 'arrowDown',
-            text: `${t.action} @ ${t.entry_price}`,
-          };
-        });
-      candleSeriesRef.current.setMarkers(markers);
+    if (candleSeriesRef.current && typeof candleSeriesRef.current.setMarkers === 'function' && Array.isArray(trades)) {
+      try {
+        const markers: SeriesMarker<Time>[] = trades
+          .filter(t => t && typeof t.pair === 'string' && t.pair.replace('/', '') === symbol)
+          .map(t => {
+            const date = t.timestamp ? new Date(t.timestamp) : new Date();
+            const time = (isNaN(date.getTime()) ? Date.now() : date.getTime()) / 1000;
+            return {
+              time: time as UTCTimestamp,
+              position: t.action === 'BUY' ? 'belowBar' : 'aboveBar',
+              color: t.action === 'BUY' ? '#10b981' : '#ef4444',
+              shape: t.action === 'BUY' ? 'arrowUp' : 'arrowDown',
+              text: `${t.action || 'TRADE'} @ ${t.entry_price || 0}`,
+            };
+          });
+        candleSeriesRef.current.setMarkers(markers);
+      } catch (e) {
+        console.error("Marker update error", e);
+      }
     }
   }, [trades, symbol]);
 
   return <div ref={chartContainerRef} className="w-full h-[400px] rounded-2xl overflow-hidden" />;
 };
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'trades' | 'strategies' | 'settings'>('dashboard');
@@ -187,6 +191,18 @@ export default function App() {
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
   const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [hasFatalError, setHasFatalError] = useState<string | null>(null);
+  
+  // Internal error handler to prevent blank screens
+  useEffect(() => {
+    const handleError = (e: ErrorEvent) => {
+      console.error("Caught global error:", e.error);
+      setHasFatalError(String(e.error));
+    };
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
   
   // Strategy Config
   const [algoSettings, setAlgoSettings] = useState({
@@ -222,52 +238,62 @@ export default function App() {
     const fetchInitialData = async () => {
       try {
         const [statusRes, tradesRes, pricesRes] = await Promise.all([
-          fetch(`${BASE_URL}/api/status`),
-          fetch(`${BASE_URL}/api/trades`),
-          fetch(`${BASE_URL}/api/market/prices`)
+          fetch(`${BASE_URL}/api/status`).catch(() => null),
+          fetch(`${BASE_URL}/api/trades`).catch(() => null),
+          fetch(`${BASE_URL}/api/market/prices`).catch(() => null)
         ]);
         
-        const statusData = statusRes.ok ? await statusRes.json() : {};
-        const tradesData = tradesRes.ok ? await tradesRes.json() : [];
+        const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
+        const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
         let pricesData: Record<string, number> = {};
         
         if (pricesRes && pricesRes.ok) {
-          const pArr = await pricesRes.json();
-          if (Array.isArray(pArr)) {
-            pArr.forEach((p: any) => {
-              if (p && p.symbol && p.price) {
-                pricesData[p.symbol] = parseFloat(p.price);
-              }
-            });
+          try {
+            const pArr = await pricesRes.json();
+            if (Array.isArray(pArr)) {
+              pArr.forEach((p: any) => {
+                if (p && p.symbol && p.price) {
+                  pricesData[p.symbol] = parseFloat(p.price);
+                }
+              });
+            }
+          } catch (e) {
+            console.error("Price parse error", e);
           }
         }
 
-        const isRunning = statusData.status === 'running';
-        setIsBotRunning(isRunning);
-        setTradingMode(statusData.mode || 'paper');
-        setActiveExchange(statusData.exchange || 'binance');
-        setPaperBalance(parseFloat(statusData.paper_balance || '1000'));
-        setBalance(parseFloat(statusData.real_balance || '0'));
-        setStatus(statusData);
+        if (statusData) {
+          setIsBotRunning(statusData.status === 'running');
+          setTradingMode(statusData.mode || 'paper');
+          setActiveExchange(statusData.exchange || 'binance');
+          setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
+          setBalance(parseFloat(String(statusData.real_balance || '0')));
+          setStatus(statusData);
+          
+          const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
+          const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
+          
+          setBalance(parseFloat(String(currentModeBal || '0')));
+          setInitialBalance(parseFloat(String(currentModeInit || '0')));
+        }
+
         setTrades(Array.isArray(tradesData) ? tradesData : []);
         if (Object.keys(pricesData).length > 0) {
           setPrices(prev => ({ ...prev, ...pricesData }));
         }
         
-        const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
-        const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
-        
-        setBalance(parseFloat(currentModeBal || '0'));
-        setInitialBalance(parseFloat(currentModeInit || '0'));
-        
         // Fetch history
-        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`);
-        if (historyRes.ok) {
-          const historyData = await historyRes.json();
-          setHistory(Array.isArray(historyData) ? historyData : []);
+        if (statusData && statusData.mode) {
+           const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`).catch(() => null);
+           if (historyRes && historyRes.ok) {
+             const historyData = await historyRes.json().catch(() => ([]));
+             setHistory(Array.isArray(historyData) ? historyData : []);
+           }
         }
       } catch (err) {
-        addNotification('error', `Connection Failed: Pointing to ${BASE_URL || 'local server'}. Please check VITE_API_URL.`);
+        console.error("Fetch error", err);
+      } finally {
+        setIsInitialLoading(false);
       }
     };
 
@@ -275,34 +301,44 @@ export default function App() {
 
     // Data Polling (every 5 seconds)
     const interval = setInterval(() => {
-      if (isBotRunning || activeTab === 'dashboard') {
+      if (activeTab === 'dashboard') {
         fetchTrades();
       }
     }, 5000);
 
     // WebSocket connection
-    const socket = new WebSocket(WS_URL);
-    
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'PRICE_UPDATE') {
-          setPrices(msg.data);
+    let socket: WebSocket | null = null;
+    try {
+      socket = new WebSocket(WS_URL);
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'PRICE_UPDATE') {
+            setPrices(prev => ({ ...prev, ...msg.data }));
+          }
+        } catch (err) {
+          console.error('WebSocket parse error', err);
         }
-      } catch (err) {
-        console.error('WebSocket parse error', err);
-      }
-    };
-
-    socket.onerror = (error) => {
-      console.error('WebSocket error observed:', error);
-    };
+      };
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    } catch (e) {
+      console.error("WS connect error", e);
+    }
 
     return () => {
-      socket.close();
+      if (socket) socket.close();
       clearInterval(interval);
     };
-  }, [isBotRunning, activeTab]);
+  }, []); // Only run once on mount
+
+  // Watch for tab changes to dashboard or engine start to refresh
+  useEffect(() => {
+    if (activeTab === 'dashboard' || isBotRunning) {
+      fetchTrades();
+    }
+  }, [activeTab, isBotRunning]);
 
   const toggleBot = async () => {
     const nextState = isBotRunning ? 'stopped' : 'running';
@@ -386,7 +422,8 @@ export default function App() {
   };
 
   const currentPnL = useMemo(() => {
-    return trades.reduce((acc, trade) => acc + (trade.pnl || 0), 0);
+    if (!Array.isArray(trades)) return 0;
+    return trades.reduce((acc, trade) => acc + (trade ? (trade.pnl || 0) : 0), 0);
   }, [trades]);
 
   const totalGrowth = useMemo(() => {
@@ -395,6 +432,45 @@ export default function App() {
     if (isNaN(initBal) || initBal === 0 || isNaN(curBal)) return 0;
     return ((curBal - initBal) / initBal) * 100;
   }, [balance, initialBalance]);
+
+  if (hasFatalError) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6 text-white font-sans">
+        <div className="max-w-md w-full bg-zinc-900/50 border border-white/5 p-8 rounded-3xl text-center backdrop-blur-xl">
+          <ShieldCheck className="w-16 h-16 text-rose-500 mx-auto mb-6 opacity-50" />
+          <h2 className="text-2xl font-bold tracking-tighter mb-4 uppercase">Protocol Breach Detected</h2>
+          <p className="text-zinc-500 text-sm mb-8 leading-relaxed">
+            The Aegis Core encountered a critical runtime error. All autonomous trading has been suspended for safety.
+          </p>
+          <div className="p-4 bg-black/40 rounded-xl mb-8 text-left">
+             <code className="text-[10px] text-zinc-600 break-all">{hasFatalError}</code>
+          </div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-colors"
+          >
+            Reset Aegis Core
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center gap-6">
+        <div className="w-16 h-16 relative">
+          <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+          <Zap className="absolute inset-0 m-auto w-6 h-6 text-orange-500" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-xl font-bold tracking-tighter mb-1 uppercase">Initializing Aegis Protocol</h2>
+          <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest animate-pulse">Syncing hot-storage & market feeds</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500/30">
@@ -648,9 +724,9 @@ export default function App() {
                   <div className="h-[200px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={history.length > 0 ? history.map(h => {
-                        const date = new Date(h.timestamp);
+                        const date = h && h.timestamp ? new Date(h.timestamp) : new Date();
                         const timeStr = isNaN(date.getTime()) ? '...' : date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                        return { time: timeStr, balance: h.balance };
+                        return { time: timeStr, balance: h && typeof h.balance === 'number' ? h.balance : 0 };
                       }) : PERFORMANCE_DATA}>
                         <defs>
                           <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
@@ -681,7 +757,7 @@ export default function App() {
                    <div className="space-y-1">
                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Net Realized</span>
                       <div className={cn("text-lg font-bold font-mono", (balance - initialBalance) >= 0 ? "text-white" : "text-rose-500")}>
-                        {(balance - initialBalance) >= 0 ? '+' : ''}{(balance - initialBalance).toFixed(2)} <span className="text-[10px] text-zinc-500">USDT</span>
+                        {(balance - initialBalance) >= 0 ? '+' : ''}{(isNaN(balance - initialBalance) ? 0 : (balance - initialBalance)).toFixed(2)} <span className="text-[10px] text-zinc-500">USDT</span>
                       </div>
                    </div>
                    <div className="space-y-1">
