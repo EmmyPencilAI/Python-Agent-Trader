@@ -307,7 +307,7 @@ async function startServer() {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     
     // Resume bot if it was running before server restart
-    const state = db.prepare('SELECT value FROM bot_state WHERE key = "running"').get() as any;
+    const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
     if (state && state.value === 'running') {
       managePythonBot('running');
     }

@@ -14,7 +14,10 @@ if [ ! -d "dist" ]; then
   exit 1
 fi
 
-# Install Python dependencies (optional check)
+# Install Python dependencies
 if [ -f requirements.txt ]; then
-  pip install -r requirements.txt
+  python -m pip install -r requirements.txt
+fi
+if [ -f trading_bot/requirements.txt ]; then
+  python -m pip install -r trading_bot/requirements.txt
 fi
