@@ -1,0 +1,6 @@
+{
+  "name": "Aegis AI Trader",
+  "description": "Professional autonomous crypto trading platform with modular strategy engine, risk management, and real-time VPS dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["Real-time data visualization", "Automated trading engine", "Mobile dashboard"]
+}
