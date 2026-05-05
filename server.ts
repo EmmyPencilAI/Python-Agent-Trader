@@ -364,6 +364,37 @@ async function startServer() {
     }
   });
 
+  app.get('/api/market/prices', async (req, res) => {
+    try {
+      const response = await axios.get('https://api.binance.com/api/v3/ticker/price');
+      const filtered = response.data.filter((p: any) => 
+        ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].includes(p.symbol)
+      );
+      res.json(filtered);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch prices' });
+    }
+  });
+
+  app.post('/api/bot/withdraw', apiKeyGuard, (req, res) => {
+    try {
+      const mode = req.body.mode || 'paper';
+      if (mode === 'paper') {
+        db.prepare("UPDATE bot_state SET value = '0' WHERE key = 'paper_balance'").run();
+        db.prepare("UPDATE bot_state SET value = '0' WHERE key = 'initial_paper_balance'").run();
+        db.prepare("DELETE FROM balance_history WHERE mode = 'paper'").run();
+      } else {
+        db.prepare("UPDATE bot_state SET value = '0' WHERE key = 'real_balance'").run();
+        db.prepare("UPDATE bot_state SET value = '0' WHERE key = 'initial_real_balance'").run();
+        db.prepare("DELETE FROM balance_history WHERE mode = 'real'").run();
+      }
+      db.prepare("DELETE FROM trades WHERE mode = ?").run(mode);
+      res.json({ status: 'success' });
+    } catch (err) {
+      res.status(500).json({ error: 'Withdrawal failed' });
+    }
+  });
+
   // WebSocket handling
   wss.on('connection', (ws) => {
     console.log('Client connected to WebSocket');

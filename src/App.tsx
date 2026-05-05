@@ -203,33 +203,41 @@ export default function App() {
         const [statusRes, tradesRes, pricesRes] = await Promise.all([
           fetch(`${BASE_URL}/api/status`),
           fetch(`${BASE_URL}/api/trades`),
-          // We can call a new endpoint or use the price helper
-          fetch(`https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT"]`)
+          fetch(`${BASE_URL}/api/market/prices`)
         ]);
         
-        if (!statusRes.ok || !tradesRes.ok) throw new Error('API unreachable');
+        const statusData = statusRes.ok ? await statusRes.json() : {};
+        const tradesData = tradesRes.ok ? await tradesRes.json() : [];
+        let pricesData: Record<string, number> = {};
         
-        const statusData = await statusRes.ok ? await statusRes.json() : {};
-        const tradesData = await tradesRes.ok ? await tradesRes.json() : [];
-        let pricesData = {};
         if (pricesRes.ok) {
           const pArr = await pricesRes.json();
-          pArr.forEach((p: any) => pricesData[p.symbol] = parseFloat(p.price));
+          if (Array.isArray(pArr)) {
+            pArr.forEach((p: any) => {
+              pricesData[p.symbol] = parseFloat(p.price);
+            });
+          }
         }
 
         setIsBotRunning(statusData.status === 'running');
         setTradingMode(statusData.mode || 'paper');
         setActiveExchange(statusData.exchange || 'binance');
         setPaperBalance(statusData.paper_balance || 1000);
-        setBalance(statusData.real_balance || 0); // Real balance from server
+        setBalance(statusData.real_balance || 0);
         setStatus(statusData);
         setTrades(tradesData);
-        setPrices(prev => ({ ...prev, ...pricesData }));
-        setBalance(tradingMode === 'paper' ? statusData.paper_balance : statusData.real_balance);
-        setInitialBalance(tradingMode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
+        if (Object.keys(pricesData).length > 0) {
+          setPrices(prev => ({ ...prev, ...pricesData }));
+        }
+        
+        const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
+        const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
+        
+        setBalance(currentModeBal || 0);
+        setInitialBalance(currentModeInit || 0);
         
         // Fetch history
-        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${tradingMode}`);
+        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`);
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           setHistory(historyData);
@@ -307,12 +315,49 @@ export default function App() {
         body: JSON.stringify({ [field]: value })
       });
       if (res.ok) {
-        if (field === 'mode') setTradingMode(value);
+        if (field === 'mode') {
+          setTradingMode(value);
+          // Auto refresh data for new mode
+          const statusRes = await fetch(`${BASE_URL}/api/status`);
+          const statusData = await statusRes.json();
+          setBalance(value === 'paper' ? statusData.paper_balance : statusData.real_balance);
+          setInitialBalance(value === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
+          const histRes = await fetch(`${BASE_URL}/api/history?mode=${value}`);
+          const histData = await histRes.json();
+          setHistory(histData);
+        }
         if (field === 'exchange') setActiveExchange(value);
-        if (field === 'paper_balance') setPaperBalance(value);
+        if (field === 'paper_balance') {
+          setPaperBalance(value);
+          setBalance(value);
+          setInitialBalance(value);
+        }
       }
     } catch (err) {
       console.error('Update failed', err);
+    }
+  };
+
+  const withdrawFunds = async () => {
+    if (!window.confirm(`Are you sure you want to withdraw all ${tradingMode} funds? This will reset your balance to zero.`)) return;
+    try {
+      const res = await fetch(`${BASE_URL}/api/bot/withdraw`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+        },
+        body: JSON.stringify({ mode: tradingMode })
+      });
+      if (res.ok) {
+        setBalance(0);
+        setInitialBalance(0);
+        setHistory([]);
+        setTrades([]);
+        addNotification('success', `Withdrawal Complete. Assets moved to cold storage.`);
+      }
+    } catch (err) {
+      addNotification('error', 'Withdrawal Request Failed.');
     }
   };
 
@@ -519,6 +564,13 @@ export default function App() {
                   <span className="font-bold uppercase tracking-widest text-sm">{exch}</span>
                 </button>
               ))}
+              <button 
+                onClick={withdrawFunds}
+                className="flex-shrink-0 ml-4 flex items-center gap-2 px-6 py-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-red-500 hover:bg-red-500/10 transition-all font-bold text-xs uppercase tracking-widest"
+              >
+                <Wallet className="w-4 h-4" />
+                WITHDRAW ALL
+              </button>
               {tradingMode === 'paper' && (
                 <div className="flex items-center gap-2 bg-white/5 px-4 rounded-2xl border border-white/10 ml-auto">
                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Set Paper:</span>
@@ -558,6 +610,33 @@ export default function App() {
                 </div>
                 
                 <TradingChart symbol="BTCUSDT" trades={trades} />
+
+                <div className="mt-8 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-500" />
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Real-time PnL Curve</span>
+                  </div>
+                  <div className="h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={history.length > 0 ? history.map(h => ({ time: new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), balance: h.balance })) : PERFORMANCE_DATA}>
+                        <defs>
+                          <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                        <XAxis dataKey="time" hide />
+                        <YAxis hide domain={['auto', 'auto']} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                          itemStyle={{ color: '#fff' }}
+                        />
+                        <Area type="monotone" dataKey="balance" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorBal)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/5">
                    <div className="space-y-1">
