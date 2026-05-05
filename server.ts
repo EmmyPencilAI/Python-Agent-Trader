@@ -11,6 +11,28 @@ import { spawn } from 'child_process';
 
 dotenv.config();
 
+async function getRealPrices() {
+  try {
+    const symbols = '["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","ADAUSDT"]';
+    const response = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbols=${symbols}`);
+    const prices: any = {};
+    response.data.forEach((ticker: any) => {
+      prices[ticker.symbol] = parseFloat(ticker.price);
+    });
+    return prices;
+  } catch (error) {
+    console.error('Error fetching real prices:', error);
+    // Fallback to approximate prices
+    return {
+      BTCUSDT: 81000,
+      ETHUSDT: 3000,
+      SOLUSDT: 200,
+      BNBUSDT: 600,
+      ADAUSDT: 0.5
+    };
+  }
+}
+
 const db = new Database('database.sqlite');
 let pythonProcess: any = null;
 
@@ -87,7 +109,7 @@ db.exec(`
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'stopped');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('mode', 'paper');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'binance');
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '0');
   INSERT OR IGNORE INTO strategy_config (strategy_id) VALUES ('default');
 `);
 
@@ -305,14 +327,12 @@ async function startServer() {
     console.log('Client connected to WebSocket');
     
     // Simulate live data stream
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       if (ws.readyState === WebSocket.OPEN) {
+        const prices = await getRealPrices();
         ws.send(JSON.stringify({
           type: 'PRICE_UPDATE',
-          data: {
-            BTCUSDT: 65000 + Math.random() * 100,
-            ETHUSDT: 3500 + Math.random() * 10
-          }
+          data: prices
         }));
       }
     }, 2000);

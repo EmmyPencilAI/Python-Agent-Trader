@@ -6,4 +6,3 @@ fastapi
 uvicorn
 python-dotenv
 requests
-matplotlib
