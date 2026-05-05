@@ -1,35 +1,31 @@
-# Aegis AI Trader - Deployment Guide
+# Aegis AI Trader - Unified Deployment Guide
 
-This system is designed to be split between a **Python Backend (Render)** and a **Frontend Dashboard (Netlify)**.
+This application is a full-stack Node.js (React + Express) app that manages a Python trading engine.
 
-## 1. Backend Deployment (Render.com)
+## 🚀 Render.com (Recommended for 24/7 Trading)
 
-1. **Create a New Web Service** on Render.
-2. **Connect your GitHub Repository**.
-3. **Configure Environment Variables** in the Render Dashboard:
+1. **New Web Service**: Connect your repo.
+2. **Runtime**: Select **Node**.
+3. **Build Command**: `./render-build.sh`
+4. **Start Command**: `npm start`
+5. **Environment Variables**:
    - `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`
    - `BITGET_API_KEY`, `BITGET_SECRET_KEY`, `BITGET_PASSPHRASE`
-   - `ACTIVE_EXCHANGE` (Set to "binance" or "bitget")
-   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
-   - `API_SECRET_KEY` (Used to protect your API)
-4. **Build Command:** `pip install -r trading_bot/requirements.txt`
-5. **Start Command:** `python trading_bot/main.py & uvicorn trading_bot.api.app:app --host 0.0.0.0 --port 10000` (Note: You may need a small bridge script to run both).
+   - `API_SECRET_KEY` (Used to secure your dashboard)
+   - `DATABASE_URL` (Optional, defaults to local SQLite)
 
-## 2. Frontend Deployment (Netlify)
+### ⚠️ Common Errors on Render
+- **Error: "Start: command not found"**: Do NOT type "Start Command: npm start". Only type `npm start` in the start command box.
+- **Python Version**: Render Node images include Python. We removed `runtime.txt` to let Render use its default stable Python.
 
-1. **Create a New Site** on Netlify.
-2. **Build Settings:**
-   - **Build Command:** `npm run build`
-   - **Publish Directory:** `dist`
-3. **Configure Environment Variables**:
-   - `VITE_API_URL`: Set this to your Render service URL (e.g., `https://aegis-trader.onrender.com`).
+## 🌐 Netlify (Frontend Only)
 
-## 3. Communication Setup
-- The Dashboard calls your Render API to fetch balance and trades.
-- Ensure CORS is configured if you're hitting the Render API directly from the browser.
+1. **Build Command**: `npm run build`
+2. **Publish Directory**: `dist` (CRITICAL: Do not leave blank)
+3. **Environment Variables**:
+   - `VITE_API_URL`: Your Render backend URL (e.g., `https://aegis-trader.onrender.com`).
+   - If not set, the app will try to call its own domain (which will fail if the backend is elsewhere).
 
----
-### Important Notes:
-- **IP Whitelisting:** Binance and Bitget strongly recommend whitelisting your VPS/Render IP for API keys.
-- **Trading Permissions:** Ensure your API keys have "Enable Spot & Margin Trading" active.
-- **Passphrase:** Bitget specifically requires a `passphrase` which is different from your password.
+### ⚠️ Netlify Failure
+- **Error: "This resource could not be found"**: You likely didn't set the Publish Directory to `dist`.
+- We deleted `runtime.txt` and `.python-version` to fix "definition not found" errors on Netlify. Netlify does not need Python to build your React frontend.

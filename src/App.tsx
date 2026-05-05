@@ -55,8 +55,15 @@ interface Trade {
   pnl?: number;
   status: 'OPEN' | 'CLOSED';
   strategy: string;
+  mode: 'real' | 'paper';
   timestamp: string;
 }
+
+// Configuration Constants
+const BASE_URL = import.meta.env.VITE_API_URL || '';
+const WS_URL = BASE_URL 
+  ? BASE_URL.replace(/^http/, 'ws') 
+  : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'trades' | 'strategies' | 'settings'>('dashboard');
@@ -70,6 +77,7 @@ export default function App() {
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
+  const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
   
   // Strategy Config
   const [algoSettings, setAlgoSettings] = useState({
@@ -88,16 +96,28 @@ export default function App() {
     }, 5000);
   };
 
-  // WebSocket connection
+  const fetchTrades = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/trades`);
+      if (res.ok) {
+        const data = await res.json();
+        setTrades(data);
+      }
+    } catch (err) {
+      console.error('Trade poll error', err);
+    }
+  };
+
+  // Initial and Periodic Fetch
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         const [statusRes, tradesRes] = await Promise.all([
-          fetch('/api/status'),
-          fetch('/api/trades')
+          fetch(`${BASE_URL}/api/status`),
+          fetch(`${BASE_URL}/api/trades`)
         ]);
         
-        if (!statusRes.ok || !tradesRes.ok) throw new Error('Failed to reach telemetry server');
+        if (!statusRes.ok || !tradesRes.ok) throw new Error('API unreachable');
         
         const statusData = await statusRes.json();
         const tradesData = await tradesRes.json();
@@ -110,14 +130,21 @@ export default function App() {
         setStatus(statusData);
         setTrades(tradesData);
       } catch (err) {
-        addNotification('error', 'Critical Connection Error: Check your internet or API proxy.');
+        addNotification('error', `Connection Failed: Pointing to ${BASE_URL || 'local server'}. Please check VITE_API_URL.`);
       }
     };
 
     fetchInitialData();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}`);
+    // Data Polling (every 5 seconds)
+    const interval = setInterval(() => {
+      if (isBotRunning || activeTab === 'dashboard') {
+        fetchTrades();
+      }
+    }, 5000);
+
+    // WebSocket connection
+    const socket = new WebSocket(WS_URL);
     
     socket.onmessage = (event) => {
       try {
@@ -134,33 +161,44 @@ export default function App() {
       console.error('WebSocket error observed:', error);
     };
 
-    return () => socket.close();
-  }, []);
+    return () => {
+      socket.close();
+      clearInterval(interval);
+    };
+  }, [isBotRunning, activeTab]);
 
   const toggleBot = async () => {
     const nextState = isBotRunning ? 'stopped' : 'running';
     try {
-      const res = await fetch('/api/bot/toggle', {
+      const res = await fetch(`${BASE_URL}/api/bot/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+        },
         body: JSON.stringify({ action: nextState })
       });
       if (res.ok) {
         setIsBotRunning(!isBotRunning);
         addNotification(isBotRunning ? 'info' : 'success', isBotRunning ? 'Autonomous engine offline.' : 'Aegis Core active. Scanning market...');
+        // Immediate refresh after toggle
+        setTimeout(fetchTrades, 500);
       } else {
-        throw new Error('API Rejection');
+        throw new Error('Unauthorized');
       }
     } catch (err) {
-      addNotification('error', 'Critical Failure: Trading engine unresponsive. Ensure API keys are valid.');
+      addNotification('error', 'Execution Error: Dashboard cannot reach trading engine. Check API Secret Key.');
     }
   };
 
   const updateSetting = async (field: 'mode' | 'exchange' | 'paper_balance', value: any) => {
     try {
-      const res = await fetch('/api/bot/settings', {
+      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+        },
         body: JSON.stringify({ [field]: value })
       });
       if (res.ok) {
@@ -621,9 +659,12 @@ export default function App() {
                   <button 
                     onClick={async () => {
                       try {
-                        const res = await fetch('/api/bot/strategy', {
+                        const res = await fetch(`${BASE_URL}/api/bot/strategy`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: { 
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey
+                          },
                           body: JSON.stringify({
                             rsi_period: algoSettings.rsiPeriod,
                             ema_short: algoSettings.emaShort,
@@ -677,9 +718,24 @@ export default function App() {
                   <ShieldCheck className="text-orange-500" /> API Configuration
                 </h3>
                 <div className="space-y-6">
-                    <SettingField label="Binance Status" value="Securely Linked" color="emerald" />
-                    <SettingField label="Bitget Status" value="Available" color="amber" />
-                   <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-2xl flex items-start gap-4">
+                     <SettingField label="Binance Status" value="Securely Linked" color="emerald" />
+                     <SettingField label="Bitget Status" value="Available" color="amber" />
+                     
+                     <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Internal API Key (Aegis Dashboard Access)</label>
+                        <input 
+                          type="password" 
+                          placeholder="Your API_SECRET_KEY"
+                          value={apiKey}
+                          onChange={(e) => {
+                            setApiKey(e.target.value);
+                            localStorage.setItem('aegis_api_key', e.target.value);
+                          }}
+                          className="w-full bg-transparent border-none p-0 text-lg font-bold font-mono focus:ring-0 placeholder:text-zinc-700"
+                        />
+                     </div>
+
+                    <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-2xl flex items-start gap-4">
                       <Bell className="text-orange-500 mt-1" />
                       <div>
                         <h4 className="font-bold text-sm">Security Advisory</h4>

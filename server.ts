@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
@@ -6,10 +7,52 @@ import { createServer as createViteServer } from 'vite';
 import Database from 'better-sqlite3';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { spawn } from 'child_process';
 
 dotenv.config();
 
 const db = new Database('database.sqlite');
+let pythonProcess: any = null;
+
+function managePythonBot(action: string) {
+  if (action === 'running') {
+    if (pythonProcess) return;
+    console.log('[AEGIS] Starting Python Trading Engine...');
+    try {
+      const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
+      // On some systems it might be 'python' instead of 'python3'
+      const pythonBinary = 'python3';
+      
+      console.log(`[AEGIS] Spawning ${pythonBinary} with ${pythonPath}`);
+      
+      pythonProcess = spawn(pythonBinary, [pythonPath], {
+        stdio: 'inherit',
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+
+      pythonProcess.on('error', (err: any) => {
+        console.error('[AEGIS] Failed to start Python bot:', err.message);
+        if (err.code === 'ENOENT') {
+          console.error(`[AEGIS] ERROR: ${pythonBinary} command not found. Please ensure Python is installed.`);
+        }
+        pythonProcess = null;
+      });
+
+      pythonProcess.on('close', (code: number) => {
+        console.log(`[AEGIS] Python bot process closed with code ${code}`);
+        pythonProcess = null;
+      });
+    } catch (err: any) {
+      console.error('[AEGIS] Error spawning Python process:', err.message);
+    }
+  } else {
+    if (pythonProcess) {
+      console.log('[AEGIS] Stopping Python Trading Engine...');
+      pythonProcess.kill();
+      pythonProcess = null;
+    }
+  }
+}
 
 // Initialize database tables
 db.exec(`
@@ -80,6 +123,8 @@ function simulateTrade(db: any) {
   db.prepare('INSERT INTO trades (pair, action, entry_price, status, pnl, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
     .run(trade.pair, trade.action, trade.entry_price, trade.status, trade.pnl, trade.timestamp);
 
+  console.log(`[AEGIS] Simulated ${trade.action} on ${trade.pair} | PnL: ${trade.pnl}`);
+
   if (mode === 'paper') {
     const newBalance = balance + pnl;
     db.prepare("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'").run(newBalance.toString());
@@ -92,7 +137,17 @@ async function startServer() {
   const wss = new WebSocketServer({ server });
   const PORT = 3000;
 
+  app.use(cors());
   app.use(express.json());
+
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      bot_alive: pythonProcess !== null,
+      timestamp: new Date().toISOString()
+    });
+  });
 
   // API Middleware
   const apiKeyGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -192,6 +247,10 @@ async function startServer() {
     try {
       const { action } = req.body;
       db.prepare('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)').run('running', action);
+      
+      // Manage the real Python process
+      managePythonBot(action);
+      
       res.json({ success: true, status: action });
     } catch (err) {
       console.error('API Toggle Error:', err);
@@ -246,6 +305,12 @@ async function startServer() {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    
+    // Resume bot if it was running before server restart
+    const state = db.prepare('SELECT value FROM bot_state WHERE key = "running"').get() as any;
+    if (state && state.value === 'running') {
+      managePythonBot('running');
+    }
   });
 }
 
