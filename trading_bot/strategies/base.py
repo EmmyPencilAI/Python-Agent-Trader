@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import numpy as np
 
 class Strategy:
     def generate_signal(self, df):
@@ -7,16 +7,20 @@ class Strategy:
 
 class ScalpingStrategy(Strategy):
     def generate_signal(self, df):
-        # RSI (14)
-        df['rsi'] = ta.rsi(df['close'], length=14)
+        # RSI (14) using pure pandas
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df['rsi'] = 100 - (100 / (1 + rs))
         
-        # MACD
-        macd = ta.macd(df['close'])
-        df['macd'] = macd['MACD_12_26_9']
-        df['macd_signal'] = macd['MACDs_12_26_9']
+        # MACD (12, 26, 9)
+        exp1 = df['close'].ewm(span=12, adjust=False).mean()
+        exp2 = df['close'].ewm(span=26, adjust=False).mean()
+        df['macd'] = exp1 - exp2
+        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
         
         last_row = df.iloc[-1]
-        prev_row = df.iloc[-2]
         
         action = "HOLD"
         confidence = 0
@@ -38,9 +42,9 @@ class ScalpingStrategy(Strategy):
 
 class SwingStrategy(Strategy):
     def generate_signal(self, df):
-        # EMA crossover
-        df['ema9'] = ta.ema(df['close'], length=9)
-        df['ema21'] = ta.ema(df['close'], length=21)
+        # EMA crossover (9, 21)
+        df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
+        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         
         last_row = df.iloc[-1]
         prev_row = df.iloc[-2]
