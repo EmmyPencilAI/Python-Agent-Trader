@@ -61,15 +61,20 @@ class TradingEngine:
             raise ValueError(f"Unsupported exchange: {exch_id}")
 
     def get_usdt_balance(self):
+        balance = 0.0
         if self.trading_mode == "paper":
-            return self.paper_balance
-        
-        try:
-            balance = self.exchange.fetch_balance()
-            return float(balance.get('USDT', {}).get('free', 0.0))
-        except Exception as e:
-            logger.error(f"Error fetching balance from {self.exchange.id}: {e}")
-            return 0.0
+            balance = self.paper_balance
+        else:
+            try:
+                bal_data = self.exchange.fetch_balance()
+                balance = float(bal_data.get('USDT', {}).get('free', 0.0))
+                # Sync real balance back to DB for Dashboard visibility
+                self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(balance)))
+                self.db.conn.commit()
+            except Exception as e:
+                logger.error(f"Error fetching balance from {self.exchange.id}: {e}")
+                balance = 0.0
+        return balance
 
     def calculate_quantity(self, symbol, price):
         balance = self.get_usdt_balance()

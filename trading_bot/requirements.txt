@@ -1,6 +1,7 @@
 python-binance
 ccxt
 pandas
+pandas_ta
 fastapi
 uvicorn
 python-dotenv
