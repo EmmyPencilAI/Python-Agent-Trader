@@ -47,13 +47,13 @@ import { cn } from './lib/utils';
 
 // Mock data for initial load
 const PERFORMANCE_DATA = [
-  { time: '00:00', pnl: 0 },
-  { time: '04:00', pnl: 120 },
-  { time: '08:00', pnl: 85 },
-  { time: '12:00', pnl: 240 },
-  { time: '16:00', pnl: 190 },
-  { time: '20:00', pnl: 350 },
-  { time: '23:59', pnl: 420 },
+  { time: '00:00', balance: 1000 },
+  { time: '04:00', balance: 1120 },
+  { time: '08:00', balance: 1085 },
+  { time: '12:00', balance: 1240 },
+  { time: '16:00', balance: 1190 },
+  { time: '20:00', balance: 1350 },
+  { time: '23:59', balance: 1420 },
 ];
 
 interface Trade {
@@ -79,6 +79,8 @@ const WS_URL = BASE_URL
 // Candlestick Chart Component
 const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) => {
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
+  const chartRef = React.useRef<any>(null);
+  const candleSeriesRef = React.useRef<any>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -108,24 +110,22 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
       wickDownColor: '#ef4444',
     });
 
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+
     const fetchKlines = async () => {
       try {
         const res = await fetch(`${BASE_URL}/api/market/klines?symbol=${symbol}`);
         if (res.ok) {
-          const data: CandlestickData[] = await res.json();
-          candleSeries.setData(data);
-          
-          // Add markers for trades
-          const markers: SeriesMarker<Time>[] = trades
-            .filter(t => t.pair.replace('/', '') === symbol)
-            .map(t => ({
-              time: (new Date(t.timestamp).getTime() / 1000) as UTCTimestamp,
-              position: t.action === 'BUY' ? 'belowBar' : 'aboveBar',
-              color: t.action === 'BUY' ? '#10b981' : '#ef4444',
-              shape: t.action === 'BUY' ? 'arrowUp' : 'arrowDown',
-              text: `${t.action} @ ${t.entry_price}`,
-            }));
-          candleSeries.setMarkers(markers);
+          const data: any[] = await res.json();
+          if (!Array.isArray(data)) return;
+          candleSeries.setData(data.map(k => ({
+            time: k.time as UTCTimestamp,
+            open: k.open,
+            high: k.high,
+            low: k.low,
+            close: k.close
+          })));
         }
       } catch (err) {
         console.error('Klines fetch failed', err);
@@ -135,8 +135,8 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
     fetchKlines();
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
 
@@ -145,8 +145,29 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
     };
-  }, [symbol, trades]);
+  }, [symbol]);
+
+  useEffect(() => {
+    if (candleSeriesRef.current && trades) {
+      const markers: SeriesMarker<Time>[] = trades
+        .filter(t => t.pair && t.pair.replace('/', '') === symbol)
+        .map(t => {
+          const date = new Date(t.timestamp);
+          const time = (isNaN(date.getTime()) ? Date.now() : date.getTime()) / 1000;
+          return {
+            time: time as UTCTimestamp,
+            position: t.action === 'BUY' ? 'belowBar' : 'aboveBar',
+            color: t.action === 'BUY' ? '#10b981' : '#ef4444',
+            shape: t.action === 'BUY' ? 'arrowUp' : 'arrowDown',
+            text: `${t.action} @ ${t.entry_price}`,
+          };
+        });
+      candleSeriesRef.current.setMarkers(markers);
+    }
+  }, [trades, symbol]);
 
   return <div ref={chartContainerRef} className="w-full h-[400px] rounded-2xl overflow-hidden" />;
 };
@@ -210,22 +231,25 @@ export default function App() {
         const tradesData = tradesRes.ok ? await tradesRes.json() : [];
         let pricesData: Record<string, number> = {};
         
-        if (pricesRes.ok) {
+        if (pricesRes && pricesRes.ok) {
           const pArr = await pricesRes.json();
           if (Array.isArray(pArr)) {
             pArr.forEach((p: any) => {
-              pricesData[p.symbol] = parseFloat(p.price);
+              if (p && p.symbol && p.price) {
+                pricesData[p.symbol] = parseFloat(p.price);
+              }
             });
           }
         }
 
-        setIsBotRunning(statusData.status === 'running');
+        const isRunning = statusData.status === 'running';
+        setIsBotRunning(isRunning);
         setTradingMode(statusData.mode || 'paper');
         setActiveExchange(statusData.exchange || 'binance');
-        setPaperBalance(statusData.paper_balance || 1000);
-        setBalance(statusData.real_balance || 0);
+        setPaperBalance(parseFloat(statusData.paper_balance || '1000'));
+        setBalance(parseFloat(statusData.real_balance || '0'));
         setStatus(statusData);
-        setTrades(tradesData);
+        setTrades(Array.isArray(tradesData) ? tradesData : []);
         if (Object.keys(pricesData).length > 0) {
           setPrices(prev => ({ ...prev, ...pricesData }));
         }
@@ -233,14 +257,14 @@ export default function App() {
         const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
         const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
         
-        setBalance(currentModeBal || 0);
-        setInitialBalance(currentModeInit || 0);
+        setBalance(parseFloat(currentModeBal || '0'));
+        setInitialBalance(parseFloat(currentModeInit || '0'));
         
         // Fetch history
         const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`);
         if (historyRes.ok) {
           const historyData = await historyRes.json();
-          setHistory(historyData);
+          setHistory(Array.isArray(historyData) ? historyData : []);
         }
       } catch (err) {
         addNotification('error', `Connection Failed: Pointing to ${BASE_URL || 'local server'}. Please check VITE_API_URL.`);
@@ -365,7 +389,12 @@ export default function App() {
     return trades.reduce((acc, trade) => acc + (trade.pnl || 0), 0);
   }, [trades]);
 
-  const totalGrowth = initialBalance === 0 ? 0 : ((balance - initialBalance) / initialBalance) * 100;
+  const totalGrowth = useMemo(() => {
+    const curBal = parseFloat(String(balance));
+    const initBal = parseFloat(String(initialBalance));
+    if (isNaN(initBal) || initBal === 0 || isNaN(curBal)) return 0;
+    return ((curBal - initBal) / initBal) * 100;
+  }, [balance, initialBalance]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500/30">
@@ -618,7 +647,11 @@ export default function App() {
                   </div>
                   <div className="h-[200px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={history.length > 0 ? history.map(h => ({ time: new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), balance: h.balance })) : PERFORMANCE_DATA}>
+                      <AreaChart data={history.length > 0 ? history.map(h => {
+                        const date = new Date(h.timestamp);
+                        const timeStr = isNaN(date.getTime()) ? '...' : date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        return { time: timeStr, balance: h.balance };
+                      }) : PERFORMANCE_DATA}>
                         <defs>
                           <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
@@ -647,8 +680,8 @@ export default function App() {
                    </div>
                    <div className="space-y-1">
                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Net Realized</span>
-                      <div className="text-lg font-bold font-mono text-white">
-                        +{(balance - initialBalance).toFixed(2)} <span className="text-[10px] text-zinc-500">USDT</span>
+                      <div className={cn("text-lg font-bold font-mono", (balance - initialBalance) >= 0 ? "text-white" : "text-rose-500")}>
+                        {(balance - initialBalance) >= 0 ? '+' : ''}{(balance - initialBalance).toFixed(2)} <span className="text-[10px] text-zinc-500">USDT</span>
                       </div>
                    </div>
                    <div className="space-y-1">
