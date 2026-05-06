@@ -19,10 +19,10 @@ class Config:
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
     API_SECRET_KEY = os.getenv("API_SECRET_KEY", "supersecurekey")
     
-    SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
-    SCAN_INTERVAL = 30  # seconds
+    SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+    SCAN_INTERVAL = 15  # 15 seconds for aggressive scalping
     
-    DATABASE_NAME = "database.sqlite"
+    CAPITAL_PER_TRADE_PCT = 15.0 # Max 15% of balance per trade
     
     # Risk Management
     MAX_DAILY_LOSS_PCT = 10.0

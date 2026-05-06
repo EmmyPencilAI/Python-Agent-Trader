@@ -104,35 +104,39 @@ class TradingEngine:
             raise ValueError(f"Unsupported exchange: {exch_id}")
 
     def get_usdt_balance(self):
+        # Cache balance for the duration of one scan loop to prevent rate limiting
+        if hasattr(self, '_last_bal_time') and time.time() - self._last_bal_time < 5:
+             return self._last_cached_bal
+
         balance = 0.0
         if self.trading_mode == "paper":
             balance = self.paper_balance
         else:
             try:
+                # Optimized: Only fetch if we really need it or every 30s for the dashboard
                 bal_data = self.exchange.fetch_balance()
-                # Priority: 'free' balance for deciding if we can take new trades
                 usdt_data = bal_data.get('USDT') or bal_data.get('usdt') or {}
                 
-                # We fetch both for better dashboard visibility
                 total_bal = float(usdt_data.get('total', 0.0))
                 free_bal = float(usdt_data.get('free', 0.0))
-                
-                # For engine internal logic, free balance is safer for execution checks
                 balance = free_bal
                 
-                logger.info(f"Fetched real {self.exchange.id} balance | Total: {total_bal} | Free: {free_bal}")
-                
-                # Sync total balance back to DB for Dashboard visibility (Equity)
+                # Silent update to DB (Dashboard visibility)
                 self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(total_bal)))
-                # Set initial if it is 0
                 cursor = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'")
                 row = cursor.fetchone()
                 if not row or row[0] == '0' or row[0] == '0.0':
                     self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(total_bal)))
                 self.db.conn.commit()
+                
+                self._last_cached_bal = balance
+                self._last_bal_time = time.time()
+                
+                if self.trading_mode == "real" and balance > 0:
+                    logger.debug(f"Sync: Balance {total_bal} USDT")
             except Exception as e:
-                logger.error(f"Error fetching balance from {self.exchange.id}: {e}")
-                balance = 0.0
+                logger.error(f"Balance Refresh Failed: {e}")
+                balance = self._last_cached_bal if hasattr(self, '_last_cached_bal') else 0.0
         return balance
 
     def calculate_quantity(self, symbol, price):
@@ -190,7 +194,7 @@ class TradingEngine:
             logger.warning(f"Quantity 0 for {symbol}, capital setting might be too low.")
             return
 
-        logger.info(f"🚀 [{self.trading_mode.upper()}] Executing {signal['action']} | {symbol} | Price: {price} | Qty: {quantity}")
+        logger.info(f"⚡ [{self.trading_mode.upper()}] Execution: {symbol} @ {price}")
         
         if self.trading_mode == "real":
             try:
@@ -199,23 +203,21 @@ class TradingEngine:
                     order = self.exchange.create_market_buy_order(symbol, quantity)
                 else:
                     order = self.exchange.create_market_sell_order(symbol, quantity)
-                logger.info(f"✅ Real Order Success: {order['id']}")
+                logger.info(f"✅ REAL ORDER FILLED: {symbol} | ID: {order['id']}")
             except Exception as e:
-                logger.error(f"❌ Exchange Order Error: {e}")
+                logger.error(f"❌ EXECUTION FAILED: {symbol} | {e}")
                 return
         else:
-            # Paper Trading: Deduct from virtual balance
+            # Paper Trading
             if signal['action'] == 'BUY':
                 cost = quantity * price
                 self.paper_balance -= cost
             else:
-                credit = quantity * price
-                self.paper_balance += credit
+                self.paper_balance += (quantity * price)
             
-            # Update DB for paper balance persistence
             self.db.conn.execute("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'", (str(self.paper_balance),))
             self.db.conn.commit()
-            logger.info(f"🧪 Paper Executed. New virtual balance: {self.paper_balance}")
+            logger.debug(f"🧪 Paper: {symbol} filler. Vol: {quantity*price:.2f}")
         
         trade_id = self.db.log_trade({
             "symbol": symbol,
@@ -229,15 +231,8 @@ class TradingEngine:
             "mode": self.trading_mode
         })
         
-        msg_prefix = "🧪 *PAPER TRADE*" if self.trading_mode == "paper" else "🚀 *REAL TRADE*"
-        TelegramManager.send_trade_alert({
-            "symbol": f"{msg_prefix} {symbol}",
-            "action": signal['action'],
-            "entry": price,
-            "tp": signal['tp'],
-            "sl": signal['sl'],
-            "confidence": signal['confidence']
-        })
+        prefix = "💎 REAL" if self.trading_mode == "real" else "🧪 PAPER"
+        TelegramManager.send_message(f"🚀 *{prefix} TRADE OPENED*\n\n*Symbol:* {symbol}\n*Action:* {signal['action']}\n*Entry:* {price:.4f}\n*TP:* {signal['tp']:.4f}\n*SL:* {signal['sl']:.4f}")
 
     def get_market_data(self, symbol):
         try:
