@@ -190,6 +190,7 @@ export default function App() {
   const [sessionStart, setSessionStart] = useState<string | null>(null);
   const [missionDuration, setMissionDuration] = useState('00:00:00');
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradeFilter, setTradeFilter] = useState<'all' | 'real'>('all');
   const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 81240.50, ETHUSDT: 3421.55 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [performance, setPerformance] = useState({ total_trades: 0, wins: 0, total_pnl: 0 });
@@ -273,13 +274,25 @@ export default function App() {
 
   const fetchTrades = async () => {
     try {
-      const res = await fetch(`${BASE_URL}/api/trades`);
+      const res = await fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`);
       if (res.ok) {
         const data = await res.json();
-        setTrades(data);
+        setTrades(data || []);
       }
     } catch (err) {
       console.error('Trade poll error', err);
+    }
+  };
+
+  const fetchPerformance = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPerformance(data);
+      }
+    } catch (err) {
+      console.error('Perf poll error', err);
     }
   };
 
@@ -287,9 +300,9 @@ export default function App() {
     try {
       const [statusRes, tradesRes, pricesRes, perfRes] = await Promise.all([
         fetch(`${BASE_URL}/api/status`).catch(() => null),
-        fetch(`${BASE_URL}/api/trades`).catch(() => null),
+        fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`).catch(() => null),
         fetch(`${BASE_URL}/api/market/prices`).catch(() => null),
-        fetch(`${BASE_URL}/api/performance`).catch(() => null)
+        fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`).catch(() => null)
       ]);
       
       const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
@@ -367,6 +380,11 @@ export default function App() {
       setIsInitialLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchTrades();
+    fetchPerformance();
+  }, [tradeFilter]);
 
   // Initial and Periodic Fetch
   useEffect(() => {
@@ -1009,14 +1027,29 @@ export default function App() {
                 </div>
               </div>
             </div>
-
             {/* Bottom: Active Trades */}
             <div className="bg-[#111] border border-white/5 rounded-3xl overflow-hidden">
                <div className="p-8 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="text-xl font-bold">Recent Trade Ledger</h3>
                   <div className="flex items-center gap-2">
-                    <button className="px-4 py-1.5 rounded-lg bg-emerald-600/10 text-emerald-500 text-xs font-bold border border-emerald-500/20">ALL LOGS</button>
-                    <button className="px-4 py-1.5 rounded-lg bg-white/5 text-zinc-400 text-xs font-bold border border-white/10 hover:bg-white/10 transition-colors">REAL ONLY</button>
+                    <button 
+                      onClick={() => setTradeFilter('all')}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors",
+                        tradeFilter === 'all' 
+                          ? "bg-emerald-600/10 text-emerald-500 border-emerald-500/20" 
+                          : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                      )}
+                    >ALL LOGS</button>
+                    <button 
+                      onClick={() => setTradeFilter('real')}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors",
+                        tradeFilter === 'real' 
+                          ? "bg-emerald-600/10 text-emerald-400 border-emerald-400/20" 
+                          : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                      )}
+                    >REAL ONLY</button>
                   </div>
                </div>
                <div className="overflow-x-auto">
@@ -1031,12 +1064,15 @@ export default function App() {
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-white/5">
-                     {trades.length === 0 ? (
+                     {trades.filter(t => tradeFilter === 'all' || t.mode === 'real').length === 0 ? (
                        <tr>
-                         <td colSpan={5} className="px-8 py-12 text-center text-zinc-600 font-medium">No live trade data available. Connect API to start.</td>
+                         <td colSpan={5} className="px-8 py-12 text-center text-zinc-600 font-medium">No {tradeFilter === 'real' ? 'real' : 'live'} trade data available. Connect API to start.</td>
                        </tr>
                      ) : (
-                      trades.map((trade) => (
+                       trades
+                        .filter(t => tradeFilter === 'all' || t.mode === 'real')
+                        .map((trade) => (
+
                         <React.Fragment key={trade.id}>
                           <tr 
                             onClick={() => setExpandedTrade(expandedTrade === trade.id ? null : trade.id)}

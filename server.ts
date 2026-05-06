@@ -348,8 +348,18 @@ async function startServer() {
 
   app.get('/api/trades', (req, res) => {
     try {
-      const trades = db.prepare('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 200').all();
-      res.json(trades);
+      const mode = req.query.mode;
+      let query = 'SELECT * FROM trades';
+      const params: any[] = [];
+      
+      if (mode && mode !== 'all') {
+        query += ' WHERE mode = ?';
+        params.push(mode);
+      }
+      
+      query += ' ORDER BY timestamp DESC LIMIT 200';
+      const trades = db.prepare(query).all(...params);
+      res.json(trades || []);
     } catch (err) {
       console.error('API Trades Error:', err);
       res.status(500).json({ error: 'Internal Server Error' });
@@ -358,15 +368,24 @@ async function startServer() {
 
   app.get('/api/performance', (req, res) => {
     try {
-      const stats = db.prepare(`
+      const mode = req.query.mode;
+      let query = `
         SELECT 
           COUNT(*) as total_trades,
           SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
           SUM(pnl) as total_pnl
         FROM trades
         WHERE status = 'CLOSED'
-      `).get();
-      res.json(stats);
+      `;
+      const params: any[] = [];
+      
+      if (mode && mode !== 'all') {
+        query += ' AND mode = ?';
+        params.push(mode);
+      }
+      
+      const stats = db.prepare(query).get(...params);
+      res.json(stats || { total_trades: 0, wins: 0, total_pnl: 0 });
     } catch (err) {
       console.error('API Performance Error:', err);
       res.status(500).json({ error: 'Internal Server Error' });
