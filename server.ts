@@ -236,8 +236,11 @@ async function startServer() {
   // API Middleware
   const apiKeyGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const apiKey = req.headers['x-api-key'];
-    if (apiKey !== process.env.API_SECRET_KEY && process.env.NODE_ENV === 'production') {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const secretKey = process.env.API_SECRET_KEY || 'Cybunk2.0X';
+    
+    if (apiKey !== secretKey) {
+      console.warn(`[AEGIS] Unauthorized access attempt from ${req.ip}`);
+      return res.status(401).json({ error: 'Unauthorized: Invalid Dashboard Auth Key' });
     }
     next();
   };
@@ -310,39 +313,42 @@ async function startServer() {
 
   app.post('/api/bot/settings', apiKeyGuard, (req, res) => {
     try {
-      const { 
-        mode, 
-        exchange, 
-        paper_balance, 
-        binance_api_key, 
-        binance_secret_key,
-        bitget_api_key,
-        bitget_secret_key,
-        bitget_passphrase,
-        telegram_bot_token,
-        telegram_chat_id
-      } = req.body;
+      const body = req.body;
+      const updates: [string, any][] = [];
+      const fields = [
+        'mode', 'exchange', 'paper_balance', 
+        'binance_api_key', 'binance_secret_key',
+        'bitget_api_key', 'bitget_secret_key', 'bitget_passphrase',
+        'telegram_bot_token', 'telegram_chat_id'
+      ];
 
-      if (mode) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('mode', ?)").run(mode);
-      if (exchange) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('exchange', ?)").run(exchange);
-      if (paper_balance !== undefined) {
-        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
-        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', ?)").run(paper_balance.toString());
+      fields.forEach(field => {
+        if (body[field] !== undefined) {
+          const val = body[field];
+          if (typeof val === 'string' && val.includes('********')) return; // Don't save masked keys
+          
+          if (field === 'paper_balance') {
+            updates.push(['paper_balance', val.toString()]);
+            updates.push(['initial_paper_balance', val.toString()]);
+          } else {
+            updates.push([field, val.toString()]);
+          }
+        }
+      });
+
+      if (updates.length > 0) {
+        console.log('[AEGIS] Committing settings updates:', updates.map(u => u[0]));
+        const stmt = db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)");
+        const transaction = db.transaction((data) => {
+          for (const [k, v] of data) stmt.run(k, v);
+        });
+        transaction(updates);
       }
-      
-      if (binance_api_key !== undefined && !binance_api_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
-      if (binance_secret_key !== undefined && !binance_secret_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_secret_key', ?)").run(binance_secret_key);
-      if (bitget_api_key !== undefined && !bitget_api_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_api_key', ?)").run(bitget_api_key);
-      if (bitget_secret_key !== undefined && !bitget_secret_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_secret_key', ?)").run(bitget_secret_key);
-      if (bitget_passphrase !== undefined && !bitget_passphrase.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_passphrase', ?)").run(bitget_passphrase);
-      
-      if (telegram_bot_token !== undefined && !telegram_bot_token.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_bot_token', ?)").run(telegram_bot_token);
-      if (telegram_chat_id !== undefined && !telegram_chat_id.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_chat_id', ?)").run(telegram_chat_id);
 
       res.json({ success: true });
-    } catch (err) {
-      console.error('API Settings Error:', err);
-      res.status(500).json({ error: 'Internal Server Error' });
+    } catch (err: any) {
+      console.error('[AEGIS] API Settings Error:', err);
+      res.status(500).json({ error: `System Persistence Error: ${err.message}` });
     }
   });
 
@@ -550,6 +556,11 @@ async function startServer() {
     }, 5000);
 
     ws.on('close', () => clearInterval(interval));
+  });
+
+  // API 404 Handler (before SPA fallback)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
   });
 
   // Vite middleware for development

@@ -12,20 +12,18 @@ class Config:
     BITGET_PASSPHRASE = os.getenv("BITGET_PASSPHRASE") # Bitget requires a passphrase
 
     ACTIVE_EXCHANGE = os.getenv("ACTIVE_EXCHANGE", "bitget").lower() # 'binance' or 'bitget'
-    TRADING_MODE = os.getenv("TRADING_MODE", "real").lower() # 'real' or 'paper'
+    TRADING_MODE = os.getenv("TRADING_MODE", "paper").lower() # 'real' or 'paper'
     PAPER_BALANCE = float(os.getenv("PAPER_BALANCE", "1000.0"))
     
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")
-
-    DATABASE_NAME = "database.sqlite"
     
-    # Symbols to trade - Bitget format
-    SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
-    SCAN_INTERVAL = 60  # seconds - checks market every minute for scalping
+    SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+    SCAN_INTERVAL = 60  # 60 seconds for production scalping
     
-    # Risk Management - Micro trading with compound growth
-    MAX_DAILY_LOSS_PCT = 5.0  # Stop trading if daily loss exceeds 5%
-    MAX_TRADES_PER_DAY = 100  # Allow many micro trades for compounding
-    CAPITAL_PER_TRADE_PCT = 2.0  # Use only 2% per trade for safety
+    CAPITAL_PER_TRADE_PCT = 2.0 # 2% allocation for micro-compounding
+    
+    # Risk Management
+    MAX_DAILY_LOSS_PCT = 5.0
+    MAX_TRADES_PER_DAY = 100
