@@ -29,7 +29,8 @@ import {
   Zap,
   BarChart3,
   CandlestickChart,
-  Globe
+  Globe,
+  Clock
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -186,9 +187,26 @@ export default function App() {
   const [balance, setBalance] = useState(0.00); 
   const [initialBalance, setInitialBalance] = useState(0.00);
   const [history, setHistory] = useState<{balance: number, timestamp: string}[]>([]);
+  const [sessionStart, setSessionStart] = useState<string | null>(null);
+  const [missionDuration, setMissionDuration] = useState('00:00:00');
   const [trades, setTrades] = useState<Trade[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 81240.50, ETHUSDT: 3421.55 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
+
+  // Live Mission Timer
+  useEffect(() => {
+    if (!sessionStart) return;
+    const interval = setInterval(() => {
+      const start = new Date(sessionStart).getTime();
+      const now = new Date().getTime();
+      const diff = Math.max(0, now - start);
+      const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+      const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+      const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+      setMissionDuration(`${h}:${m}:${s}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sessionStart]);
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
   const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
@@ -286,6 +304,7 @@ export default function App() {
         
         setBalance(parseFloat(String(currentModeBal || '0')));
         setInitialBalance(parseFloat(String(currentModeInit || '0')));
+        setSessionStart(statusData.session_start || null);
         
         // Sync existing keys from server (non-secret parts)
         setExchangeKeys(prev => ({
@@ -652,58 +671,104 @@ export default function App() {
                 icon={<ShieldCheck className="text-emerald-500" />}
               />
               <StatsCard
-                label="Execution Precision"
-                value="99.9%"
-                change="No manual input needed"
-                trend="neutral"
-                icon={<Zap className="text-blue-500" />}
+                label="Session Uptime"
+                value={missionDuration}
+                change={sessionStart ? `Started: ${new Date(sessionStart).toLocaleTimeString()}` : "Initializing core..."}
+                trend="up"
+                icon={<Clock className="text-blue-500" />}
               />
             </div>
 
-            {/* QUICK SETUP: Paper Trading Initialization */}
-            <div className="bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] p-8 animate-in fade-in slide-in-from-top-4">
-                <div className="flex items-center justify-between mb-6">
-                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-orange-600 rounded-2xl">
-                      <Zap className="text-white w-5 h-5" />
+            {/* QUICK SETUP: Aegis Core Initialization */}
+            <div className="bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] p-8 animate-in fade-in slide-in-from-top-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-[100px] rounded-full" />
+                
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                   <div className="flex items-center gap-4">
+                    <div className="p-4 bg-orange-600 rounded-[1.5rem] shadow-xl shadow-orange-600/20">
+                      <Zap className="text-white w-6 h-6" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold">Paper Trade Quick Setup</h3>
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Initialize virtual liquidity for immediate testing</p>
+                      <h3 className="text-2xl font-black tracking-tight">Core Initialization</h3>
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-black">Configure execution environment & liquidity</p>
                     </div>
                    </div>
-                   <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] font-bold text-zinc-400 uppercase">Environment: Virtual Core</div>
-                </div>
-                <div className="flex flex-col md:flex-row gap-6">
-                   <div className="flex-1 p-5 bg-black/40 border border-white/5 rounded-2xl">
-                      <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-3 text-center md:text-left">Select Starting Equity (USDT)</label>
-                      <div className="flex items-center gap-3 mb-4 justify-center md:justify-start">
-                        <span className="text-zinc-600 font-bold text-2xl">$</span>
-                        <input 
-                          type="number"
-                          value={paperBalance}
-                          onChange={(e) => setPaperBalance(parseFloat(e.target.value))}
-                          className="bg-transparent border-none p-0 text-3xl font-black font-mono focus:ring-0 w-40"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-                        {[10, 30, 50, 100, 500, 1000, 2500, 5000].map(amt => (
-                          <button 
-                            key={amt}
-                            onClick={() => setPaperBalance(amt)}
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg text-xs font-black border transition-all",
-                              paperBalance === amt 
-                                ? "bg-orange-600 border-orange-600 text-white shadow-lg shadow-orange-600/20" 
-                                : "bg-white/5 border-white/10 text-zinc-500 hover:border-white/20"
-                            )}
-                          >
-                            ${amt}
-                          </button>
-                        ))}
-                      </div>
+                   
+                   <div className="flex items-center gap-1 bg-black/40 p-1 rounded-2xl border border-white/5 backdrop-blur-sm">
+                      <button 
+                        onClick={() => updateSetting('mode', 'paper')}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
+                          tradingMode === 'paper' 
+                            ? "bg-orange-600 text-white shadow-lg shadow-orange-600/20" 
+                            : "text-zinc-500 hover:text-white"
+                        )}
+                      >
+                        VIRTUAL
+                      </button>
+                      <button 
+                        onClick={() => updateSetting('mode', 'real')}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
+                          tradingMode === 'real' 
+                            ? "bg-white text-black shadow-lg" 
+                            : "text-zinc-500 hover:text-white"
+                        )}
+                      >
+                        LIVE CORE
+                      </button>
                    </div>
-                   <div className="flex flex-col justify-end">
+                </div>
+
+                <div className="flex flex-col lg:flex-row gap-8">
+                   <div className="flex-1 p-6 bg-black/60 border border-white/5 rounded-[2rem] backdrop-blur-xl">
+                      {tradingMode === 'paper' ? (
+                        <>
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-4 tracking-widest">Target Initial Equity (USDT)</label>
+                          <div className="flex items-center gap-4 mb-6">
+                            <span className="text-zinc-600 font-bold text-3xl">$</span>
+                            <input 
+                              type="number"
+                              value={paperBalance}
+                              onChange={(e) => setPaperBalance(parseFloat(e.target.value))}
+                              className="bg-transparent border-none p-0 text-4xl font-black font-mono focus:ring-0 w-full"
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {[100, 500, 1000, 2500, 5000, 10000].map(amt => (
+                              <button 
+                                key={amt}
+                                onClick={() => setPaperBalance(amt)}
+                                className={cn(
+                                  "px-4 py-2 rounded-xl text-xs font-black border transition-all",
+                                  paperBalance === amt 
+                                    ? "bg-orange-600 border-orange-600 text-white" 
+                                    : "bg-white/5 border-white/10 text-zinc-400 hover:border-white/20"
+                                )}
+                              >
+                                ${amt.toLocaleString()}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="h-full flex flex-col justify-center py-4">
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
+                            <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Live Exchange Link Active</span>
+                          </div>
+                          <p className="text-sm text-zinc-400 leading-relaxed max-w-md">
+                            Aegis is currently synchronized with your <span className="text-white font-bold">{activeExchange.toUpperCase()}</span> treasury. Liquidity is managed in real-time from your exchange wallet.
+                          </p>
+                          <div className="mt-6 flex flex-wrap gap-3">
+                             <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500">KEY: {exchangeKeys.binance_api_key ? '***' + exchangeKeys.binance_api_key.slice(-4) : 'NOT SET'}</div>
+                             <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500">SEC: {exchangeKeys.binance_secret_key ? 'PROTECTED' : 'NOT SET'}</div>
+                          </div>
+                        </div>
+                      )}
+                   </div>
+
+                   <div className="flex flex-col justify-center min-w-[240px]">
                      <button 
                       onClick={async () => {
                         try {
@@ -712,11 +777,12 @@ export default function App() {
                             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                             body: JSON.stringify({ 
                               paper_balance: paperBalance,
+                              mode: tradingMode,
                               ...exchangeKeys
                             })
                           });
                           if (res.ok) {
-                            addNotification('success', 'Aegis Core synchronized. Paper liquidity ready.');
+                            addNotification('success', `Aegis ${tradingMode === 'paper' ? 'Virtual' : 'Live'} Core synchronized.`);
                             syncAppData();
                           } else {
                             addNotification('error', 'Protocol synchronization failed. Check Auth Key.');
@@ -725,10 +791,16 @@ export default function App() {
                           addNotification('error', 'Network connection interrupted.');
                         }
                       }}
-                      className="h-full md:h-auto py-5 px-10 bg-white text-black hover:bg-zinc-200 rounded-3xl font-black text-xs uppercase tracking-[0.2em] transition-all active:scale-95 shadow-2xl"
+                      className={cn(
+                        "w-full py-6 px-8 rounded-3xl font-black text-xs uppercase tracking-[0.3em] transition-all active:scale-95 shadow-2xl",
+                        tradingMode === 'paper' ? "bg-white text-black hover:bg-zinc-200" : "bg-orange-600 text-white hover:bg-orange-500"
+                      )}
                      >
-                       INITIALIZE PAPER CORE
+                       {tradingMode === 'paper' ? 'INITIALIZE PAPER CORE' : 'REFRESH LIVE SYNC'}
                      </button>
+                     <p className="text-[9px] text-zinc-600 text-center mt-4 uppercase font-black tracking-widest">
+                       {tradingMode === 'paper' ? 'Atomic reset of virtual balance history' : 'Updates local cache with exchange ledger'}
+                     </p>
                    </div>
                 </div>
             </div>

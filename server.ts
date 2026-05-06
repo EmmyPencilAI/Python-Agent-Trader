@@ -96,6 +96,7 @@ db.exec(`
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_real_balance', '0');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('session_start', CURRENT_TIMESTAMP);
   INSERT OR IGNORE INTO strategy_config (strategy_id) VALUES ('default');
   CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode);
   CREATE INDEX IF NOT EXISTS idx_history_mode ON balance_history(mode);
@@ -238,6 +239,7 @@ async function startServer() {
         initial_paper_balance: parseFloat(initialPaper?.value || '1000'),
         active_strategy: state.active_strategy || 'Scalping Elite',
         algo_settings: config,
+        session_start: state.session_start || new Date().toISOString(),
         uptime: '24h 15m'
       });
     } catch (err) {
@@ -282,6 +284,7 @@ async function startServer() {
       if (paper_balance !== undefined) {
         db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
         db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', ?)").run(paper_balance.toString());
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('session_start', CURRENT_TIMESTAMP)").run();
       }
       
       if (binance_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
