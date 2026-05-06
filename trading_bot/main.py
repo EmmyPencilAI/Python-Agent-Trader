@@ -4,10 +4,10 @@ import json
 import urllib.request
 import pandas as pd
 import ccxt
-from config import Config
-from strategies.base import ScalpingStrategy, SwingStrategy
-from database.db import DatabaseManager
-from notifications.telegram import TelegramManager
+from trading_bot.config import Config
+from trading_bot.strategies.base import ScalpingStrategy, SwingStrategy
+from trading_bot.database.db import DatabaseManager
+from trading_bot.notifications.telegram import TelegramManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("AegisBot")

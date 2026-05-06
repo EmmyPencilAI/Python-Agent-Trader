@@ -1,6 +1,6 @@
 import requests
 import sqlite3
-from config import Config
+from trading_bot.config import Config
 
 class TelegramManager:
     @staticmethod

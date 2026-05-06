@@ -2,8 +2,8 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-from database.db import DatabaseManager
-from config import Config
+from trading_bot.database.db import DatabaseManager
+from trading_bot.config import Config
 import logging
 
 logger = logging.getLogger("API")
