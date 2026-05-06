@@ -30,8 +30,7 @@ import {
   BarChart3,
   CandlestickChart,
   Globe,
-  Clock,
-  AlertTriangle
+  Clock
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -233,7 +232,6 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
   const [serverIp, setServerIp] = useState<string>('');
-  const [binanceStatus, setBinanceStatus] = useState<string>('Checking...');
   
   // API Keys and External Config
   const [exchangeKeys, setExchangeKeys] = useState({
@@ -359,7 +357,6 @@ export default function App() {
       if (ipRes && ipRes.ok) {
          const ipData = await ipRes.json();
          setServerIp(ipData.ip);
-         setBinanceStatus(ipData.binance_status || 'Unknown');
       }
     } catch (err) {
       console.error("Fetch error", err);
@@ -725,16 +722,8 @@ export default function App() {
                    
                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-2xl border border-white/5 backdrop-blur-sm">
                       <div className="flex items-center px-3 py-2 gap-2">
-                        <div className={cn(
-                          "w-1.5 h-1.5 rounded-full animate-pulse",
-                          binanceStatus.includes('Restricted') ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.6)]" : "bg-emerald-500"
-                        )} />
-                        <span className={cn(
-                          "text-[10px] font-black uppercase tracking-widest whitespace-nowrap",
-                          binanceStatus.includes('Restricted') ? "text-rose-500" : "text-zinc-500"
-                        )}>
-                          {binanceStatus.includes('Restricted') ? 'Region Restricted' : 'Cloud Sync Active'}
-                        </span>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Cloud Sync Ready</span>
                       </div>
                       <button 
                         onClick={() => updateSetting('mode', 'paper')}
@@ -763,18 +752,6 @@ export default function App() {
 
                 <div className="flex flex-col lg:flex-row gap-8">
                    <div className="flex-1 p-6 bg-black/60 border border-white/5 rounded-[2rem] backdrop-blur-xl">
-                      {tradingMode === 'real' && binanceStatus.includes('Restricted') && (
-                        <div className="bg-rose-500/10 border border-rose-500/20 p-5 rounded-2xl flex items-start gap-4 mb-6">
-                          <AlertTriangle className="text-rose-500 w-6 h-6 shrink-0" />
-                          <div>
-                            <p className="text-rose-500 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Execution Blocked</p>
-                            <p className="text-xs text-zinc-400 leading-relaxed">
-                              Binance has restricted this server's region (Render Cloud). Real trading via Binance is disabled from this node. 
-                              <span className="text-white font-bold block mt-1 underline">Action Required: Use a Proxy/VPN or switch to Bitget in Settings.</span>
-                            </p>
-                          </div>
-                        </div>
-                      )}
                       {tradingMode === 'paper' ? (
                         <>
                           <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-4 tracking-widest">Target Initial Equity (USDT)</label>

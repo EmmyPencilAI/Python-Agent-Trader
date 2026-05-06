@@ -98,7 +98,7 @@ db.exec(`
   );
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'stopped');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('mode', 'paper');
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'binance');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'bitget');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_real_balance', '0');
@@ -417,11 +417,7 @@ async function startServer() {
   app.get('/api/server-ip', async (req, res) => {
     try {
       const response = await axios.get('https://api.ipify.org?format=json');
-      const binanceCheck = await axios.get('https://api.binance.com/api/v3/time').catch(e => e.response);
-      res.json({ 
-        ip: response.data.ip,
-        binance_status: binanceCheck?.status === 200 ? 'Allowed' : (binanceCheck?.status === 451 ? 'Restricted (451)' : 'Unknown (' + binanceCheck?.status + ')')
-      });
+      res.json({ ip: response.data.ip });
     } catch (err) {
       console.error('Failed to fetch server diagnostics:', err);
       res.status(500).json({ error: 'Failed to fetch server diagnostics' });
