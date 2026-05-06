@@ -20,7 +20,7 @@ class Config:
     API_SECRET_KEY = os.getenv("API_SECRET_KEY", "supersecurekey")
     
     SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
-    SCAN_INTERVAL = 60  # seconds
+    SCAN_INTERVAL = 30  # seconds
     
     DATABASE_NAME = "database.sqlite"
     

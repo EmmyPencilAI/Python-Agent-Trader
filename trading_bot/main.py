@@ -58,7 +58,7 @@ class TradingEngine:
             
             def get_val(key, default):
                 row = db_keys.get(key)
-                val = row[0] if row and row[0] else None
+                val = row[0] if row and row[0] and str(row[0]).strip() and '********' not in str(row[0]) else None
                 return val if val else default
 
             binance_key = get_val('binance_api_key', Config.BINANCE_API_KEY)
@@ -90,7 +90,7 @@ class TradingEngine:
                 'apiKey': binance_key,
                 'secret': binance_secret,
                 'enableRateLimit': True,
-                'options': {'defaultType': 'future'} # Default to futures for binance if available, or spot
+                'options': {'defaultType': 'spot'} # Default to spot as requested for simple balance
             })
         elif exch_id == 'bitget':
             return ccxt.bitget({
@@ -110,24 +110,25 @@ class TradingEngine:
         else:
             try:
                 bal_data = self.exchange.fetch_balance()
-                # Debug log the keys to troubleshoot Bitget structure
-                logger.debug(f"Balance keys: {list(bal_data.keys())}")
-                
-                # CCXT usually normalizes to 'USDT', but we check just in case
+                # Priority: 'free' balance for deciding if we can take new trades
                 usdt_data = bal_data.get('USDT') or bal_data.get('usdt') or {}
                 
-                # Check total, free, or just the value if it's a simple float (though CCXT uses a dict)
-                balance = float(usdt_data.get('total', usdt_data.get('free', 0.0)))
+                # We fetch both for better dashboard visibility
+                total_bal = float(usdt_data.get('total', 0.0))
+                free_bal = float(usdt_data.get('free', 0.0))
                 
-                logger.info(f"Fetched real {self.exchange.id} balance: {balance} USDT")
+                # For engine internal logic, free balance is safer for execution checks
+                balance = free_bal
                 
-                # Sync real balance back to DB for Dashboard visibility
-                self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(balance)))
+                logger.info(f"Fetched real {self.exchange.id} balance | Total: {total_bal} | Free: {free_bal}")
+                
+                # Sync total balance back to DB for Dashboard visibility (Equity)
+                self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(total_bal)))
                 # Set initial if it is 0
                 cursor = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'")
                 row = cursor.fetchone()
                 if not row or row[0] == '0' or row[0] == '0.0':
-                    self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(balance)))
+                    self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(total_bal)))
                 self.db.conn.commit()
             except Exception as e:
                 logger.error(f"Error fetching balance from {self.exchange.id}: {e}")
@@ -141,13 +142,41 @@ class TradingEngine:
             return 0.0
             
         alloc_usdt = balance * (Config.CAPITAL_PER_TRADE_PCT / 100)
+        
+        # Enforce minimum trade size (Bitget/Binance usually require ~5 USDT)
+        min_trade_size = 5.1 # Use a bit more than 5 to be safe
+        if alloc_usdt < min_trade_size:
+            if balance >= min_trade_size:
+                logger.info(f"Allocation {alloc_usdt} too small, bumping to minimum: {min_trade_size}")
+                alloc_usdt = min_trade_size
+            else:
+                logger.warning(f"Balance {balance} is below minimum trade size {min_trade_size}.")
+                return 0.0
+
         quantity = alloc_usdt / price
-        return quantity 
+        
+        # Format quantity to match exchange precision if possible
+        # For simplicity, we'll use a reasonable precision or fetch from markets
+        try:
+            if self.exchange:
+                market = self.exchange.market(symbol)
+                quantity = self.exchange.amount_to_precision(symbol, quantity)
+                return float(quantity)
+        except:
+            pass
+            
+        return round(quantity, 6) 
 
     def execute_trade(self, symbol, signal):
         if signal['action'] == "HOLD":
             return
             
+        # Check if we already have an open trade for this symbol
+        cursor = self.db.conn.execute("SELECT id FROM trades WHERE pair = ? AND status = 'OPEN' AND mode = ?", (symbol, self.trading_mode))
+        if cursor.fetchone():
+            logger.debug(f"Already have an open {self.trading_mode} trade for {symbol}. Skipping.")
+            return
+
         price = signal['entry']
         quantity = self.calculate_quantity(symbol, price)
         
@@ -213,6 +242,21 @@ class TradingEngine:
             return df
         except Exception as e:
             logger.error(f"Error fetching market data for {symbol}: {e}")
+            # Try fetch_ticker first as it's often more reliable than fallback
+            try:
+                ticker = self.exchange.fetch_ticker(symbol)
+                price = ticker['last']
+                if price:
+                    logger.info(f"Using ticker price for {symbol}: {price}")
+                    now = pd.Timestamp.now()
+                    data = {
+                        'timestamp': [now],
+                        'open': [price], 'high': [price], 'low': [price], 'close': [price], 'volume': [0]
+                    }
+                    return pd.DataFrame(data)
+            except Exception as te:
+                logger.debug(f"Ticker fetch failed for {symbol}: {te}")
+
             # Special handling for restricted locations (451 error) in Paper Trading
             if self.trading_mode == 'paper' and ('451' in str(e) or 'Eligibility' in str(e)):
                 try:
@@ -231,8 +275,17 @@ class TradingEngine:
             return pd.DataFrame()
 
     def get_fallback_price(self, symbol):
+        # Cache for CoinGecko to avoid 429
+        if not hasattr(self, '_price_cache'):
+            self._price_cache = {}
+        
+        cache_key = symbol.replace('/', '').upper()
+        if cache_key in self._price_cache:
+            ts, price = self._price_cache[cache_key]
+            if time.time() - ts < 300: # 5 min cache
+                return price
+
         try:
-            # Map symbol to coingecko id
             mapping = {
                 "BTCUSDT": "bitcoin",
                 "ETHUSDT": "ethereum",
@@ -240,20 +293,20 @@ class TradingEngine:
                 "SOLUSDT": "solana",
                 "ADAUSDT": "cardano"
             }
-            # Handle both formats symbol/usdt or symbolusdt
-            clean_symbol = symbol.replace('/', '').upper()
+            clean_symbol = cache_key
             cg_id = mapping.get(clean_symbol)
-            
             if not cg_id:
                 cg_id = clean_symbol.replace('USDT', '').lower()
 
             url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 AegisBot/1.0'})
             with urllib.request.urlopen(req) as response:
                 data = json.loads(response.read().decode())
-                return float(data[cg_id]['usd'])
+                price = float(data[cg_id]['usd'])
+                self._price_cache[clean_symbol] = (time.time(), price)
+                return price
         except Exception as e:
-            logger.error(f"Could not fetch fallback price: {e}")
+            logger.error(f"Could not fetch fallback price for {symbol}: {e}")
             return None
 
     def check_balance_thresholds(self, balance):
@@ -274,6 +327,70 @@ class TradingEngine:
                     break
         except Exception as e:
             logger.error(f"Error checking balance thresholds: {e}")
+
+    def monitor_positions(self):
+        """Monitor open positions for TP/SL hits"""
+        try:
+            cursor = self.db.conn.execute("SELECT * FROM trades WHERE status = 'OPEN' AND mode = ?", (self.trading_mode,))
+            open_trades = cursor.fetchall()
+            # columns: id, pair, action, entry_price, exit_price, quantity, pnl, status, tp, sl, strategy, exchange, timestamp
+            
+            for trade in open_trades:
+                tid, symbol, action, entry, _, qty, _, _, tp, sl, _, _, _ = trade
+                
+                # Fetch current price
+                df = self.get_market_data(symbol)
+                if df.empty: continue
+                current_price = df.iloc[-1]['close']
+                
+                exit_price = None
+                pnl = 0
+                
+                if action == 'BUY':
+                    if current_price >= tp:
+                        exit_price = tp
+                        logger.info(f"🎯 TP Hit for {symbol} | Price: {exit_price}")
+                    elif current_price <= sl:
+                        exit_price = sl
+                        logger.info(f"🛑 SL Hit for {symbol} | Price: {exit_price}")
+                else: # SELL/SHORT (if supported)
+                    if current_price <= tp:
+                        exit_price = tp
+                        logger.info(f"🎯 TP Hit for {symbol} | Price: {exit_price}")
+                    elif current_price >= sl:
+                        exit_price = sl
+                        logger.info(f"🛑 SL Hit for {symbol} | Price: {exit_price}")
+                        
+                if exit_price:
+                    # Calculate PnL
+                    if action == 'BUY':
+                        pnl = (exit_price - entry) * qty
+                    else:
+                        pnl = (entry - exit_price) * qty
+                        
+                    if self.trading_mode == "real":
+                        # In real mode, we should ideally execute the close on exchange
+                        # For spot simulation of 'BUY', we sell the asset
+                        try:
+                            if action == 'BUY':
+                                self.exchange.create_market_sell_order(symbol, qty)
+                            else:
+                                self.exchange.create_market_buy_order(symbol, qty)
+                        except Exception as e:
+                            logger.error(f"Failed to execute real exit for {symbol}: {e}")
+                            continue # Don't close in DB if exchange fails
+                    else:
+                        # Update paper balance
+                        self.paper_balance += pnl
+                        self.db.conn.execute("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'", (str(self.paper_balance),))
+                        
+                    self.db.update_trade(tid, exit_price, pnl, 'CLOSED')
+                    
+                    msg = f"🏁 *TRADE CLOSED*\n\n*Symbol:* {symbol}\n*Action:* {action} Exit\n*PnL:* ${pnl:.2f}\n*Status:* {'✅ PROFIT' if pnl > 0 else '❌ LOSS'}"
+                    TelegramManager.send_message(msg)
+                    
+        except Exception as e:
+            logger.error(f"Error monitoring positions: {e}")
 
     def run(self):
         logger.info("Bot logic ready...")
@@ -334,6 +451,9 @@ class TradingEngine:
                     self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
                     self.db.conn.commit()
                     last_balance_record = time.time()
+
+                # Position Monitoring
+                self.monitor_positions()
 
                 for symbol in Config.SYMBOLS:
                     try:

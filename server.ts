@@ -25,8 +25,14 @@ function managePythonBot(action: string) {
       const pythonBinary = 'python3';
       
       pythonProcess = spawn(pythonBinary, [pythonPath], {
-        stdio: 'inherit',
+        stdio: ['inherit', 'inherit', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+
+      pythonProcess.stderr.on('data', (data: any) => {
+        const errorMsg = data.toString();
+        console.error(`[AEGIS-PYTHON-ERR] ${errorMsg}`);
+        // If we see a module error, we can inform the user or try to handle it
       });
 
       pythonProcess.on('error', (err: any) => {
