@@ -254,7 +254,14 @@ async function startServer() {
         active_strategy: state.active_strategy || 'Scalping Elite',
         algo_settings: config,
         session_start: state.session_start || new Date().toISOString(),
-        uptime: uptime
+        uptime: uptime,
+        binance_api_key: state.binance_api_key || '',
+        binance_secret_key: state.binance_secret_key || '',
+        bitget_api_key: state.bitget_api_key || '',
+        bitget_secret_key: state.bitget_secret_key || '',
+        bitget_passphrase: state.bitget_passphrase || '',
+        telegram_bot_token: state.telegram_bot_token || '',
+        telegram_chat_id: state.telegram_chat_id || ''
       });
     } catch (err) {
       console.error('API Status Error:', err);

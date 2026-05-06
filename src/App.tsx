@@ -335,7 +335,10 @@ export default function App() {
         setExchangeKeys(prev => ({
           ...prev,
           binance_api_key: statusData.binance_api_key || '',
+          binance_secret_key: statusData.binance_secret_key || '',
           bitget_api_key: statusData.bitget_api_key || '',
+          bitget_secret_key: statusData.bitget_secret_key || '',
+          bitget_passphrase: statusData.bitget_passphrase || '',
           telegram_bot_token: statusData.telegram_bot_token || '',
           telegram_chat_id: statusData.telegram_chat_id || ''
         }));
@@ -1333,8 +1336,45 @@ export default function App() {
                           placeholder="Bitget Secret Key"
                         />
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Passphrase</label>
+                        <input 
+                          type="password"
+                          value={exchangeKeys.bitget_passphrase}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_passphrase: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          placeholder="Bitget Passphrase"
+                        />
+                      </div>
                     </div>
                   </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                          method: 'POST',
+                          headers: { 
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey
+                          },
+                          body: JSON.stringify(exchangeKeys)
+                        });
+                        if (res.ok) {
+                          addNotification('success', 'Exchange credentials encrypted and synchronized.');
+                        } else {
+                          throw new Error('Sync failed');
+                        }
+                      } catch (err) {
+                        addNotification('error', 'Credential Sync Failure: Verify Internal API Key.');
+                      }
+                    }}
+                    className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-[0.2em] transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
+                  >
+                    SAVE EXCHANGE CONFIG
+                  </button>
                 </div>
              </div>
 
@@ -1365,9 +1405,37 @@ export default function App() {
                         />
                       </div>
                     </div>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                            method: 'POST',
+                            headers: { 
+                              'Content-Type': 'application/json',
+                              'x-api-key': apiKey
+                            },
+                            body: JSON.stringify({
+                              telegram_bot_token: exchangeKeys.telegram_bot_token,
+                              telegram_chat_id: exchangeKeys.telegram_chat_id
+                            })
+                          });
+                          if (res.ok) {
+                            addNotification('success', 'Telegram push protocol updated.');
+                          } else {
+                            throw new Error('Sync failed');
+                          }
+                        } catch (err) {
+                          addNotification('error', 'Credential Sync Failure: Verify Internal API Key.');
+                        }
+                      }}
+                      className="w-full py-3 bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all"
+                    >
+                      SAVE NOTIFICATION ASSETS
+                    </button>
                   </div>
 
                   <div className="space-y-6">
+
                     <h3 className="text-xl font-bold flex items-center gap-3">
                       <Globe className="text-emerald-500" /> Whitelisting
                     </h3>
