@@ -43,9 +43,16 @@ class TelegramManager:
 🚀 *TRADE EXECUTED*
 *Pair:* {trade_data['symbol']}
 *Action:* {trade_data['action']}
-*Entry:* {trade_data['entry']}
-*TP:* {trade_data['tp']}
-*SL:* {trade_data['sl']}
+*Entry:* ${trade_data['entry']:.4f}
+*Quantity:* {trade_data.get('quantity', 'N/A')}
+*TP:* ${trade_data['tp']:.4f}
+*SL:* ${trade_data['sl']:.4f}
 *Confidence:* {trade_data.get('confidence', 0)}%
+*Balance:* ${trade_data.get('balance', 0):.2f}
 """
         TelegramManager.send_message(msg)
+
+    @staticmethod
+    def send_alert(message):
+        """Send alert message for errors or warnings"""
+        TelegramManager.send_message(message)

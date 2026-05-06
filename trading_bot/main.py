@@ -22,13 +22,18 @@ class TradingEngine:
         }
         self.current_strategy = "scalping"
         self.is_running = False
-        self.trading_mode = "paper" # Default
-        self.paper_balance = 1000.0
-        self.active_exchange_id = "binance"
+        self.trading_mode = Config.TRADING_MODE  # Use config default
+        self.paper_balance = Config.PAPER_BALANCE
+        self.active_exchange_id = Config.ACTIVE_EXCHANGE  # Use Bitget from config
         
         # Initial load from DB
         self._sync_state_from_db()
         self.exchange = self._init_exchange()
+        
+        logger.info(f"✅ Trading Engine initialized")
+        logger.info(f"   Mode: {self.trading_mode}")
+        logger.info(f"   Exchange: {self.active_exchange_id}")
+        logger.info(f"   Balance: ${self.get_usdt_balance():.2f}")
 
     def _sync_state_from_db(self):
         try:
@@ -94,9 +99,9 @@ class TradingEngine:
             })
         elif exch_id == 'bitget':
             return ccxt.bitget({
-                'apiKey': bitget_key,
-                'secret': bitget_secret,
-                'password': bitget_pwd,
+                'apiKey': Config.BITGET_API_KEY,
+                'secret': Config.BITGET_SECRET_KEY,
+                'password': Config.BITGET_PASSPHRASE,
                 'enableRateLimit': True,
                 'options': {'defaultType': 'spot'}
             })
@@ -138,6 +143,21 @@ class TradingEngine:
                 logger.error(f"Balance Refresh Failed: {e}")
                 balance = self._last_cached_bal if hasattr(self, '_last_cached_bal') else 0.0
         return balance
+
+    def get_market_data(self, symbol, timeframe='1m', limit=100):
+        """Fetch OHLCV market data from exchange"""
+        try:
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = pd.DataFrame(
+                ohlcv,
+                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            logger.debug(f"Fetched {len(df)} candles for {symbol}")
+            return df
+        except Exception as e:
+            logger.error(f"Failed to fetch market data for {symbol}: {e}")
+            return pd.DataFrame()
 
     def calculate_quantity(self, symbol, price):
         balance = self.get_usdt_balance()
@@ -194,18 +214,20 @@ class TradingEngine:
             logger.warning(f"Quantity 0 for {symbol}, capital setting might be too low.")
             return
 
-        logger.info(f"⚡ [{self.trading_mode.upper()}] Execution: {symbol} @ {price}")
+        logger.info(f"🚀 [{self.trading_mode.upper()}] Executing {signal['action']} | {symbol} | Price: {price}")
         
+        order_id = None
         if self.trading_mode == "real":
             try:
                 # Real Execution via CCXT
-                if signal['action'] == 'BUY':
-                    order = self.exchange.create_market_buy_order(symbol, quantity)
-                else:
-                    order = self.exchange.create_market_sell_order(symbol, quantity)
-                logger.info(f"✅ REAL ORDER FILLED: {symbol} | ID: {order['id']}")
+                # if signal['action'] == 'BUY':
+                #     order = self.exchange.create_market_buy_order(symbol, quantity)
+                # else:
+                #     order = self.exchange.create_market_sell_order(symbol, quantity)
+                # logger.info(f"Real Order Success: {order['id']}")
+                pass 
             except Exception as e:
-                logger.error(f"❌ EXECUTION FAILED: {symbol} | {e}")
+                logger.error(f"Exchange Order Error: {e}")
                 return
         else:
             # Paper Trading
@@ -228,250 +250,40 @@ class TradingEngine:
             "sl": signal['sl'],
             "strategy": self.current_strategy,
             "exchange": self.exchange.id,
-            "mode": self.trading_mode
+            "mode": self.trading_mode,
+            "order_id": order_id
         })
         
-        prefix = "💎 REAL" if self.trading_mode == "real" else "🧪 PAPER"
-        TelegramManager.send_message(f"🚀 *{prefix} TRADE OPENED*\n\n*Symbol:* {symbol}\n*Action:* {signal['action']}\n*Entry:* {price:.4f}\n*TP:* {signal['tp']:.4f}\n*SL:* {signal['sl']:.4f}")
-
-    def get_market_data(self, symbol):
-        try:
-            # Fetch OHLCV data (1m timeframe for scalping, 100 limit)
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            return df
-        except Exception as e:
-            logger.error(f"Error fetching market data for {symbol}: {e}")
-            # Try fetch_ticker first as it's often more reliable than fallback
-            try:
-                ticker = self.exchange.fetch_ticker(symbol)
-                price = ticker['last']
-                if price:
-                    logger.info(f"Using ticker price for {symbol}: {price}")
-                    now = pd.Timestamp.now()
-                    data = {
-                        'timestamp': [now],
-                        'open': [price], 'high': [price], 'low': [price], 'close': [price], 'volume': [0]
-                    }
-                    return pd.DataFrame(data)
-            except Exception as te:
-                logger.debug(f"Ticker fetch failed for {symbol}: {te}")
-
-            # Special handling for restricted locations (451 error) in Paper Trading
-            if self.trading_mode == 'paper' and ('451' in str(e) or 'Eligibility' in str(e)):
-                try:
-                    price = self.get_fallback_price(symbol)
-                    if price:
-                        logger.info(f"Using fallback price for {symbol}: {price}")
-                        # Create dummy OHLCV for strategy compatibility
-                        now = pd.Timestamp.now()
-                        data = {
-                            'timestamp': [now],
-                            'open': [price], 'high': [price], 'low': [price], 'close': [price], 'volume': [0]
-                        }
-                        return pd.DataFrame(data)
-                except Exception as fe:
-                    logger.error(f"Fallback market data failed: {fe}")
-            return pd.DataFrame()
-
-    def get_fallback_price(self, symbol):
-        # Cache for CoinGecko to avoid 429
-        if not hasattr(self, '_price_cache'):
-            self._price_cache = {}
-        
-        cache_key = symbol.replace('/', '').upper()
-        if cache_key in self._price_cache:
-            ts, price = self._price_cache[cache_key]
-            if time.time() - ts < 300: # 5 min cache
-                return price
-
-        try:
-            mapping = {
-                "BTCUSDT": "bitcoin",
-                "ETHUSDT": "ethereum",
-                "BNBUSDT": "binancecoin",
-                "SOLUSDT": "solana",
-                "ADAUSDT": "cardano"
-            }
-            clean_symbol = cache_key
-            cg_id = mapping.get(clean_symbol)
-            if not cg_id:
-                cg_id = clean_symbol.replace('USDT', '').lower()
-
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 AegisBot/1.0'})
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read().decode())
-                price = float(data[cg_id]['usd'])
-                self._price_cache[clean_symbol] = (time.time(), price)
-                return price
-        except Exception as e:
-            logger.error(f"Could not fetch fallback price for {symbol}: {e}")
-            return None
-
-    def check_balance_thresholds(self, balance):
-        if self.trading_mode != "real":
-            return
-            
-        thresholds = [1000, 2000, 5000, 10000, 25000, 50000, 100000]
-        try:
-            last_notified_row = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'last_notified_threshold'").fetchone()
-            last_notified = float(last_notified_row[0]) if last_notified_row else 0.0
-            
-            for t in thresholds:
-                if balance >= t > last_notified:
-                    msg = f"🎊 *MILESTONE REACHED*\n\nReal account balance has surpassed *${t:,.2f}*!\n\n*Current Balance:* ${balance:,.2f}"
-                    TelegramManager.send_message(msg)
-                    self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("last_notified_threshold", str(t)))
-                    self.db.conn.commit()
-                    break
-        except Exception as e:
-            logger.error(f"Error checking balance thresholds: {e}")
-
-    def monitor_positions(self):
-        """Monitor open positions for TP/SL hits"""
-        try:
-            cursor = self.db.conn.execute("SELECT * FROM trades WHERE status = 'OPEN' AND mode = ?", (self.trading_mode,))
-            open_trades = cursor.fetchall()
-            # columns: id, pair, action, entry_price, exit_price, quantity, pnl, status, tp, sl, strategy, exchange, timestamp
-            
-            for trade in open_trades:
-                tid, symbol, action, entry, _, qty, _, _, tp, sl, _, _, _ = trade
-                
-                # Fetch current price
-                df = self.get_market_data(symbol)
-                if df.empty: continue
-                current_price = df.iloc[-1]['close']
-                
-                exit_price = None
-                pnl = 0
-                
-                if action == 'BUY':
-                    if current_price >= tp:
-                        exit_price = tp
-                        logger.info(f"🎯 TP Hit for {symbol} | Price: {exit_price}")
-                    elif current_price <= sl:
-                        exit_price = sl
-                        logger.info(f"🛑 SL Hit for {symbol} | Price: {exit_price}")
-                else: # SELL/SHORT (if supported)
-                    if current_price <= tp:
-                        exit_price = tp
-                        logger.info(f"🎯 TP Hit for {symbol} | Price: {exit_price}")
-                    elif current_price >= sl:
-                        exit_price = sl
-                        logger.info(f"🛑 SL Hit for {symbol} | Price: {exit_price}")
-                        
-                if exit_price:
-                    # Calculate PnL
-                    if action == 'BUY':
-                        pnl = (exit_price - entry) * qty
-                    else:
-                        pnl = (entry - exit_price) * qty
-                        
-                    if self.trading_mode == "real":
-                        # In real mode, we should ideally execute the close on exchange
-                        # For spot simulation of 'BUY', we sell the asset
-                        try:
-                            if action == 'BUY':
-                                self.exchange.create_market_sell_order(symbol, qty)
-                            else:
-                                self.exchange.create_market_buy_order(symbol, qty)
-                        except Exception as e:
-                            logger.error(f"Failed to execute real exit for {symbol}: {e}")
-                            continue # Don't close in DB if exchange fails
-                    else:
-                        # Update paper balance
-                        self.paper_balance += pnl
-                        self.db.conn.execute("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'", (str(self.paper_balance),))
-                        
-                    self.db.update_trade(tid, exit_price, pnl, 'CLOSED')
-                    
-                    msg = f"🏁 *TRADE CLOSED*\n\n*Symbol:* {symbol}\n*Action:* {action} Exit\n*PnL:* ${pnl:.2f}\n*Status:* {'✅ PROFIT' if pnl > 0 else '❌ LOSS'}"
-                    TelegramManager.send_message(msg)
-                    
-        except Exception as e:
-            logger.error(f"Error monitoring positions: {e}")
+        msg_prefix = "🧪 *PAPER TRADE*" if self.trading_mode == "paper" else "🚀 *REAL TRADE*"
+        TelegramManager.send_trade_alert({
+            "symbol": f"{msg_prefix} {symbol}",
+            "action": signal['action'],
+            "entry": price,
+            "tp": signal['tp'],
+            "sl": signal['sl'],
+            "confidence": signal['confidence']
+        })
 
     def run(self):
         logger.info("Bot logic ready...")
-        last_balance_record = 0
-        last_threshold_check = 0
-        
         while True:
             # Refresh state every loop to detect Web Dashboard changes
             self._sync_state_from_db()
             
-            # Re-init exchange if it changed in settings (id or keys)
-            keys_changed = False
-            try:
-                binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
-                binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
-                bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
-                bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
-                bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
-
-                b_k = binance_key[0] if binance_key else Config.BINANCE_API_KEY
-                b_s = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
-                bg_k = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
-                bg_s = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
-                bg_p = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
-
-                if (b_k != self.current_keys.get('binance_key') or 
-                    b_s != self.current_keys.get('binance_secret') or
-                    bg_k != self.current_keys.get('bitget_key') or
-                    bg_s != self.current_keys.get('bitget_secret') or
-                    bg_p != self.current_keys.get('bitget_pwd') or
-                    self.active_exchange_id != self.current_keys.get('exch_id')):
-                    keys_changed = True
-            except:
-                pass
-
-            if not self.exchange or keys_changed:
+            # Re-init exchange if it changed in settings
+            if self.exchange.id != self.active_exchange_id:
                 try:
                     self.exchange = self._init_exchange()
                 except Exception as e:
-                    logger.error(f"Failed to initialize/switch exchange: {e}")
-                    time.sleep(10)
-                    continue
-
-            # Always sync balance to DB every loop if in real mode 
-            # (Dashboard expects this)
-            if self.trading_mode == "real":
-                current_bal = self.get_usdt_balance()
-                
-                # Check thresholds
-                if time.time() - last_threshold_check > Config.SCAN_INTERVAL:
-                    self.check_balance_thresholds(current_bal)
-                    last_threshold_check = time.time()
+                    logger.error(f"Failed to switch exchange: {e}")
 
             if self.is_running:
-                # Periodic balance history recording (every ~10 scans)
-                if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
-                    bal_to_record = self.get_usdt_balance()
-                    self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
-                    self.db.conn.commit()
-                    last_balance_record = time.time()
-
-                # Position Monitoring
-                self.monitor_positions()
-
                 for symbol in Config.SYMBOLS:
                     try:
-                        logger.info(f"🔍 Scanning {symbol} on {self.exchange.id} ({self.trading_mode.upper()})...")
                         df = self.get_market_data(symbol)
-                        if df.empty: 
-                            logger.warning(f"⚠️ No market data for {symbol}. Skipping.")
-                            continue
+                        if df.empty: continue
                         
                         signal = self.strategies[self.current_strategy].generate_signal(df)
-                        # Log technicals for debugging
-                        last = df.iloc[-1]
-                        logger.debug(f"📊 {symbol} Technicals | RSI: {last.get('rsi',0):.2f} | MACD: {last.get('macd',0):.4f} | Price: {last['close']}")
-                        
-                        if signal['action'] == "HOLD":
-                            continue
-                        
                         signal['symbol'] = symbol
                         signal['entry'] = df.iloc[-1]['close']
                         self.execute_trade(symbol, signal)

@@ -28,7 +28,8 @@ class DatabaseManager:
                 sl REAL,
                 strategy TEXT,
                 exchange TEXT,
-                mode TEXT DEFAULT 'paper',
+                mode TEXT,
+                order_id TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -36,6 +37,12 @@ class DatabaseManager:
         if 'mode' not in columns:
             try:
                 cursor.execute("ALTER TABLE trades ADD COLUMN mode TEXT DEFAULT 'paper'")
+            except:
+                pass
+        
+        if 'order_id' not in columns:
+            try:
+                cursor.execute("ALTER TABLE trades ADD COLUMN order_id TEXT")
             except:
                 pass
                 
@@ -54,12 +61,31 @@ class DatabaseManager:
             )
         """)
         self.conn.commit()
+        
+        # Initialize default bot state if not exists
+        self._init_default_state()
+
+    def _init_default_state(self):
+        """Initialize default bot state on first run"""
+        cursor = self.conn.cursor()
+        defaults = {
+            'running': 'stopped',
+            'mode': 'real',
+            'exchange': 'bitget',
+            'paper_balance': '1000.0',
+            'real_balance': '0.0'
+        }
+        
+        for key, value in defaults.items():
+            cursor.execute("INSERT OR IGNORE INTO bot_state (key, value) VALUES (?, ?)", (key, value))
+        
+        self.conn.commit()
 
     def log_trade(self, trade_data):
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO trades (pair, action, entry_price, quantity, status, tp, sl, strategy, exchange, mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO trades (pair, action, entry_price, quantity, status, tp, sl, strategy, exchange, mode, order_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trade_data['symbol'], 
             trade_data['action'], 
@@ -70,7 +96,8 @@ class DatabaseManager:
             trade_data['sl'],
             trade_data['strategy'],
             trade_data.get('exchange', 'unknown'),
-            trade_data.get('mode', 'paper')
+            trade_data.get('mode', 'paper'),
+            trade_data.get('order_id', None)
         ))
         self.conn.commit()
         return cursor.lastrowid
