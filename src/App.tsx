@@ -192,6 +192,7 @@ export default function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 81240.50, ETHUSDT: 3421.55 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
+  const [performance, setPerformance] = useState({ total_trades: 0, wins: 0, total_pnl: 0 });
 
   // Live Mission Timer
   useEffect(() => {
@@ -284,15 +285,21 @@ export default function App() {
 
   const syncAppData = async () => {
     try {
-      const [statusRes, tradesRes, pricesRes] = await Promise.all([
+      const [statusRes, tradesRes, pricesRes, perfRes] = await Promise.all([
         fetch(`${BASE_URL}/api/status`).catch(() => null),
         fetch(`${BASE_URL}/api/trades`).catch(() => null),
-        fetch(`${BASE_URL}/api/market/prices`).catch(() => null)
+        fetch(`${BASE_URL}/api/market/prices`).catch(() => null),
+        fetch(`${BASE_URL}/api/performance`).catch(() => null)
       ]);
       
       const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
       const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
+      const perfData = perfRes && perfRes.ok ? await perfRes.json().catch(() => ({ total_trades: 0 })) : { total_trades: 0 };
       let pricesData: Record<string, number> = {};
+      
+      if (perfData) {
+        setPerformance(perfData);
+      }
       
       if (pricesRes && pricesRes.ok) {
         try {
@@ -676,9 +683,9 @@ export default function App() {
                 icon={<TrendingUp className={totalGrowth >= 0 ? "text-emerald-500" : "text-rose-500"} />}
               />
               <StatsCard
-                label="Daily Trade Target"
-                value="200 Trades"
-                change="Goal: 15% per trade"
+                label="Total Trades"
+                value={`${performance.total_trades} Executed`}
+                change={`Win Rate: ${performance.total_trades > 0 ? ((performance.wins / performance.total_trades) * 100).toFixed(1) : 0}%`}
                 trend="neutral"
                 icon={<Activity className="text-orange-500" />}
               />
@@ -691,7 +698,7 @@ export default function App() {
               />
               <StatsCard
                 label="Session Uptime"
-                value={missionDuration}
+                value={status.uptime || missionDuration}
                 change={isBotRunning ? (sessionStart ? `Started: ${new Date(sessionStart).toLocaleTimeString()}` : "Active") : "Awaiting activation..."}
                 trend="up"
                 icon={<Clock className="text-blue-500" />}
@@ -714,6 +721,10 @@ export default function App() {
                    </div>
                    
                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-2xl border border-white/5 backdrop-blur-sm">
+                      <div className="flex items-center px-3 py-2 gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Cloud Sync Ready</span>
+                      </div>
                       <button 
                         onClick={() => updateSetting('mode', 'paper')}
                         className={cn(

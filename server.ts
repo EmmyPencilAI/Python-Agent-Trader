@@ -13,17 +13,16 @@ dotenv.config();
 
 const db = new Database('database.sqlite');
 let pythonProcess: any = null;
+let botStartTime: number | null = null;
 
 function managePythonBot(action: string) {
   if (action === 'running') {
     if (pythonProcess) return;
+    botStartTime = Date.now();
     console.log('[AEGIS] Starting Python Trading Engine...');
     try {
       const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
-      // On some systems it might be 'python' instead of 'python3'
       const pythonBinary = 'python3';
-      
-      console.log(`[AEGIS] Spawning ${pythonBinary} with ${pythonPath}`);
       
       pythonProcess = spawn(pythonBinary, [pythonPath], {
         stdio: 'inherit',
@@ -32,15 +31,21 @@ function managePythonBot(action: string) {
 
       pythonProcess.on('error', (err: any) => {
         console.error('[AEGIS] Failed to start Python bot:', err.message);
-        if (err.code === 'ENOENT') {
-          console.error(`[AEGIS] ERROR: ${pythonBinary} command not found. Please ensure Python is installed.`);
-        }
         pythonProcess = null;
+        botStartTime = null;
       });
 
       pythonProcess.on('close', (code: number) => {
         console.log(`[AEGIS] Python bot process closed with code ${code}`);
         pythonProcess = null;
+        // Auto-restart if it's supposed to be running
+        const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
+        if (state && state.value === 'running') {
+          console.log('[AEGIS] Restarting Python bot...');
+          setTimeout(() => managePythonBot('running'), 5000);
+        } else {
+          botStartTime = null;
+        }
       });
     } catch (err: any) {
       console.error('[AEGIS] Error spawning Python process:', err.message);
@@ -50,6 +55,7 @@ function managePythonBot(action: string) {
       console.log('[AEGIS] Stopping Python Trading Engine...');
       pythonProcess.kill();
       pythonProcess = null;
+      botStartTime = null;
     }
   }
 }
@@ -197,7 +203,7 @@ async function startServer() {
   app.get('/api/history', async (req, res) => {
     try {
       const mode = req.query.mode || 'paper';
-      const history = db.prepare('SELECT balance, timestamp FROM balance_history WHERE mode = ? ORDER BY timestamp ASC LIMIT 100').all(mode);
+      const history = db.prepare('SELECT balance, timestamp FROM balance_history WHERE mode = ? ORDER BY timestamp ASC LIMIT 500').all(mode);
       res.json(history);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch history' });
@@ -229,6 +235,14 @@ async function startServer() {
       const initialReal = db.prepare("SELECT value FROM bot_state WHERE key = 'initial_real_balance'").get() as any;
       const initialPaper = db.prepare("SELECT value FROM bot_state WHERE key = 'initial_paper_balance'").get() as any;
 
+      let uptime = '0h 0m';
+      if (botStartTime) {
+        const diff = Date.now() - botStartTime;
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        uptime = `${h}h ${m}m`;
+      }
+
       res.json({
         status: state.running || 'stopped',
         mode: state.mode || 'paper',
@@ -240,7 +254,7 @@ async function startServer() {
         active_strategy: state.active_strategy || 'Scalping Elite',
         algo_settings: config,
         session_start: state.session_start || new Date().toISOString(),
-        uptime: '24h 15m'
+        uptime: uptime
       });
     } catch (err) {
       console.error('API Status Error:', err);
@@ -304,7 +318,7 @@ async function startServer() {
 
   app.get('/api/trades', (req, res) => {
     try {
-      const trades = db.prepare('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 50').all();
+      const trades = db.prepare('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 200').all();
       res.json(trades);
     } catch (err) {
       console.error('API Trades Error:', err);
@@ -350,15 +364,15 @@ async function startServer() {
     }
   });
 
-  // Start periodic high-frequency trade simulation (Targets 200 trades/day goal)
-  // This logic runs 24/7 as long as the server process is alive.
+  // Start periodic high-frequency trade simulation (Targets 1000+ trades/day goal)
+  // This logic runs 24/7 on the server, independent of the frontend state.
   setInterval(() => {
     try {
       simulateTrade(db);
     } catch (err) {
       console.error('24/7 Execution Logic Error:', err);
     }
-  }, 12000); // Increased frequency slightly to ensure ~200-300 trades/day uptime
+  }, 8000); 
 
   // Helper to fetch multiple prices
   const fetchRealPrices = async () => {

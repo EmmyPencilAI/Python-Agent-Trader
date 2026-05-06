@@ -26,5 +26,5 @@ class Config:
     
     # Risk Management
     MAX_DAILY_LOSS_PCT = 10.0
-    MAX_TRADES_PER_DAY = 10
+    MAX_TRADES_PER_DAY = 1000
     CAPITAL_PER_TRADE_PCT = 20.0
