@@ -279,7 +279,10 @@ async function startServer() {
 
       if (mode) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('mode', ?)").run(mode);
       if (exchange) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('exchange', ?)").run(exchange);
-      if (paper_balance !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
+      if (paper_balance !== undefined) {
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', ?)").run(paper_balance.toString());
+      }
       
       if (binance_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
       if (binance_secret_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_secret_key', ?)").run(binance_secret_key);

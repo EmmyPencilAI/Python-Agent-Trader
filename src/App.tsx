@@ -246,86 +246,84 @@ export default function App() {
     }
   };
 
+  const syncAppData = async () => {
+    try {
+      const [statusRes, tradesRes, pricesRes] = await Promise.all([
+        fetch(`${BASE_URL}/api/status`).catch(() => null),
+        fetch(`${BASE_URL}/api/trades`).catch(() => null),
+        fetch(`${BASE_URL}/api/market/prices`).catch(() => null)
+      ]);
+      
+      const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
+      const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
+      let pricesData: Record<string, number> = {};
+      
+      if (pricesRes && pricesRes.ok) {
+        try {
+          const pArr = await pricesRes.json();
+          if (Array.isArray(pArr)) {
+            pArr.forEach((p: any) => {
+              if (p && p.symbol && p.price) {
+                pricesData[p.symbol] = parseFloat(p.price);
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Price parse error", e);
+        }
+      }
+
+      if (statusData) {
+        setIsBotRunning(statusData.status === 'running');
+        setTradingMode(statusData.mode || 'paper');
+        setActiveExchange(statusData.exchange || 'binance');
+        setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
+        setBalance(parseFloat(String(statusData.real_balance || '0')));
+        setStatus(statusData);
+        
+        const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
+        const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
+        
+        setBalance(parseFloat(String(currentModeBal || '0')));
+        setInitialBalance(parseFloat(String(currentModeInit || '0')));
+        
+        // Sync existing keys from server (non-secret parts)
+        setExchangeKeys(prev => ({
+          ...prev,
+          binance_api_key: statusData.binance_api_key || '',
+          bitget_api_key: statusData.bitget_api_key || '',
+          telegram_bot_token: statusData.telegram_bot_token || '',
+          telegram_chat_id: statusData.telegram_chat_id || ''
+        }));
+
+        // Fetch history
+        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`).catch(() => null);
+        if (historyRes && historyRes.ok) {
+          const historyData = await historyRes.json().catch(() => ([]));
+          setHistory(Array.isArray(historyData) ? historyData : []);
+        }
+      }
+
+      setTrades(Array.isArray(tradesData) ? tradesData : []);
+      if (Object.keys(pricesData).length > 0) {
+        setPrices(prev => ({ ...prev, ...pricesData }));
+      }
+
+      const ipRes = await fetch(`${BASE_URL}/api/server-ip`).catch(() => null);
+      if (ipRes && ipRes.ok) {
+         const ipData = await ipRes.json();
+         setServerIp(ipData.ip);
+      }
+    } catch (err) {
+      console.error("Fetch error", err);
+    } finally {
+      setIsInitialLoading(false);
+    }
+  };
+
   // Initial and Periodic Fetch
   useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        const [statusRes, tradesRes, pricesRes] = await Promise.all([
-          fetch(`${BASE_URL}/api/status`).catch(() => null),
-          fetch(`${BASE_URL}/api/trades`).catch(() => null),
-          fetch(`${BASE_URL}/api/market/prices`).catch(() => null)
-        ]);
-        
-        const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
-        const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
-        let pricesData: Record<string, number> = {};
-        
-        if (pricesRes && pricesRes.ok) {
-          try {
-            const pArr = await pricesRes.json();
-            if (Array.isArray(pArr)) {
-              pArr.forEach((p: any) => {
-                if (p && p.symbol && p.price) {
-                  pricesData[p.symbol] = parseFloat(p.price);
-                }
-              });
-            }
-          } catch (e) {
-            console.error("Price parse error", e);
-          }
-        }
-
-        if (statusData) {
-          setIsBotRunning(statusData.status === 'running');
-          setTradingMode(statusData.mode || 'paper');
-          setActiveExchange(statusData.exchange || 'binance');
-          setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
-          setBalance(parseFloat(String(statusData.real_balance || '0')));
-          setStatus(statusData);
-          
-          const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
-          const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
-          
-          setBalance(parseFloat(String(currentModeBal || '0')));
-          setInitialBalance(parseFloat(String(currentModeInit || '0')));
-          
-          // Sync existing keys from server (non-secret parts)
-          setExchangeKeys(prev => ({
-            ...prev,
-            binance_api_key: statusData.binance_api_key || '',
-            bitget_api_key: statusData.bitget_api_key || '',
-            telegram_bot_token: statusData.telegram_bot_token || '',
-            telegram_chat_id: statusData.telegram_chat_id || ''
-          }));
-        }
-
-        const ipRes = await fetch(`${BASE_URL}/api/server-ip`).catch(() => null);
-        if (ipRes && ipRes.ok) {
-           const ipData = await ipRes.json();
-           setServerIp(ipData.ip);
-        }
-
-        setTrades(Array.isArray(tradesData) ? tradesData : []);
-        if (Object.keys(pricesData).length > 0) {
-          setPrices(prev => ({ ...prev, ...pricesData }));
-        }
-        
-        // Fetch history
-        if (statusData && statusData.mode) {
-           const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`).catch(() => null);
-           if (historyRes && historyRes.ok) {
-             const historyData = await historyRes.json().catch(() => ([]));
-             setHistory(Array.isArray(historyData) ? historyData : []);
-           }
-        }
-      } catch (err) {
-        console.error("Fetch error", err);
-      } finally {
-        setIsInitialLoading(false);
-      }
-    };
-
-    fetchInitialData();
+    syncAppData();
 
     // Data Polling (every 5 seconds)
     const interval = setInterval(() => {
@@ -719,6 +717,7 @@ export default function App() {
                           });
                           if (res.ok) {
                             addNotification('success', 'Aegis Core synchronized. Paper liquidity ready.');
+                            syncAppData();
                           } else {
                             addNotification('error', 'Protocol synchronization failed. Check Auth Key.');
                           }
