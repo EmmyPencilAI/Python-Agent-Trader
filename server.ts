@@ -524,7 +524,11 @@ async function startServer() {
     // Resume bot if it was running before server restart
     const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
     if (state && state.value === 'running') {
+      console.log('[AEGIS] Cold Boot Recovery: Resuming autonomous trading operations.');
       managePythonBot('running');
+      // If we are resuming, the botStartTime is set in managePythonBot, 
+      // but if we want to be precise about cumulative uptime we'd need another field.
+      // For now, setting it to now is standard for a "Session" restart.
     }
   });
 }

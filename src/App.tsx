@@ -544,12 +544,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500/30">
+    <div className="min-h-screen bg-[#09090b] text-white selection:bg-emerald-500/30 font-sans selection:text-emerald-200">
       {/* Sidebar / Navigation (Mobile Bottom, Desktop Left) */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:top-0 md:bottom-0 md:w-20 md:border-r border-white/10 bg-black/80 backdrop-blur-xl md:flex md:flex-col md:items-center py-4 flex justify-around items-center">
         <div className="hidden md:flex mb-12">
-          <div className="w-10 h-10 bg-orange-600 rounded-lg flex items-center justify-center">
-            <Zap className="w-6 h-6 text-white" />
+          <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6 text-white" />
           </div>
         </div>
         
@@ -607,7 +607,7 @@ export default function App() {
             <div className="flex gap-4 mt-2">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">BTC</span>
-                <span className="text-xs font-mono font-bold text-orange-500">${(prices.BTCUSDT || 0).toLocaleString()}</span>
+                <span className="text-xs font-mono font-bold text-emerald-500">${(prices.BTCUSDT || 0).toLocaleString()}</span>
               </div>
               <div className="flex items-center gap-2 border-l border-white/10 pl-4">
                 <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">ETH</span>
@@ -620,7 +620,7 @@ export default function App() {
             {/* Risk Control Info */}
             <div className="hidden lg:flex flex-col items-end mr-4">
               <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Protocol Strategy</div>
-              <div className="text-xs font-bold text-orange-500">0.5% Risk · 15% Target</div>
+              <div className="text-xs font-bold text-emerald-500">0.5% Risk · 15% Target</div>
             </div>
             {/* Mode Switcher */}
             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
@@ -636,7 +636,7 @@ export default function App() {
                   updateSetting('mode', 'real');
                   addNotification('success', 'Real Account Liquidity Live. Use with caution.');
                 }}
-                className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", tradingMode === 'real' ? "bg-orange-600 text-white shadow-lg shadow-orange-600/20" : "text-zinc-500")}
+                className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", tradingMode === 'real' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" : "text-zinc-500")}
               >REAL</button>
             </div>
 
@@ -646,7 +646,7 @@ export default function App() {
                 "w-full sm:w-auto group flex items-center justify-center gap-3 px-8 py-3 rounded-xl font-bold transition-all duration-300 active:scale-95",
                 isBotRunning 
                   ? "bg-white text-black hover:bg-white/90" 
-                  : "bg-orange-600 text-white hover:bg-orange-500 shadow-lg shadow-orange-600/20"
+                  : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/20"
               )}
             >
               {isBotRunning ? (
@@ -673,7 +673,7 @@ export default function App() {
                 value={`${balance.toLocaleString()} USDT`}
                 change={tradingMode === 'paper' ? "Virtual Assets" : (balance > 0 ? "Live Account" : "Connect API")}
                 trend={balance > initialBalance ? "up" : (balance < initialBalance ? "down" : "neutral")}
-                icon={<ShieldCheck className="text-orange-500" />}
+                icon={<ShieldCheck className="text-emerald-500" />}
               />
               <StatsCard
                 label="Portfolio Growth"
@@ -687,7 +687,7 @@ export default function App() {
                 value={`${performance.total_trades} Executed`}
                 change={`Win Rate: ${performance.total_trades > 0 ? ((performance.wins / performance.total_trades) * 100).toFixed(1) : 0}%`}
                 trend="neutral"
-                icon={<Activity className="text-orange-500" />}
+                icon={<Activity className="text-emerald-500" />}
               />
               <StatsCard
                 label="Real-time Risk"
@@ -706,13 +706,13 @@ export default function App() {
             </div>
 
             {/* QUICK SETUP: Aegis Core Initialization */}
-            <div className="bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] p-8 animate-in fade-in slide-in-from-top-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-[100px] rounded-full" />
+            <div className="bg-emerald-600/5 border border-emerald-500/20 rounded-[2.5rem] p-8 animate-in fade-in slide-in-from-top-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[100px] rounded-full" />
                 
                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
                    <div className="flex items-center gap-4">
-                    <div className="p-4 bg-orange-600 rounded-[1.5rem] shadow-xl shadow-orange-600/20">
-                      <Zap className="text-white w-6 h-6" />
+                    <div className="p-4 bg-emerald-600 rounded-[1.5rem] shadow-xl shadow-emerald-600/20">
+                      <ShieldCheck className="text-white w-6 h-6" />
                     </div>
                     <div>
                       <h3 className="text-2xl font-black tracking-tight">Core Initialization</h3>
@@ -729,8 +729,8 @@ export default function App() {
                         onClick={() => updateSetting('mode', 'paper')}
                         className={cn(
                           "px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
-                          tradingMode === 'paper' 
-                            ? "bg-orange-600 text-white shadow-lg shadow-orange-600/20" 
+                          tradingMode === 'real' 
+                            ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" 
                             : "text-zinc-500 hover:text-white"
                         )}
                       >
@@ -772,7 +772,7 @@ export default function App() {
                                 className={cn(
                                   "px-4 py-2 rounded-xl text-xs font-black border transition-all",
                                   paperBalance === amt 
-                                    ? "bg-orange-600 border-orange-600 text-white" 
+                                    ? "bg-emerald-600 border-emerald-600 text-white" 
                                     : "bg-white/5 border-white/10 text-zinc-400 hover:border-white/20"
                                 )}
                               >
@@ -823,7 +823,7 @@ export default function App() {
                       }}
                       className={cn(
                         "w-full py-6 px-8 rounded-3xl font-black text-xs uppercase tracking-[0.3em] transition-all active:scale-95 shadow-2xl",
-                        tradingMode === 'paper' ? "bg-white text-black hover:bg-zinc-200" : "bg-orange-600 text-white hover:bg-orange-500"
+                        tradingMode === 'paper' ? "bg-white text-black hover:bg-zinc-200" : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/20"
                       )}
                      >
                        {tradingMode === 'paper' ? 'INITIALIZE PAPER CORE' : 'REFRESH LIVE SYNC'}
@@ -834,13 +834,13 @@ export default function App() {
                    </div>
                 </div>
             </div>
-            <div className="p-8 bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] relative overflow-hidden group">
+            <div className="p-8 bg-emerald-600/5 border border-emerald-500/20 rounded-[2.5rem] relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                 <TrendingUp size={120} className="text-orange-500" />
+                 <TrendingUp size={120} className="text-emerald-500" />
               </div>
               <div className="relative z-10 max-w-2xl">
                  <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
-                   <Zap className="text-orange-500" /> Aegis Intelligence Terminal
+                   <ShieldCheck className="text-emerald-500" /> Aegis Intelligence Terminal
                  </h2>
                  <p className="text-zinc-400 text-sm leading-relaxed mb-6">
                     Aegis is an enterprise-grade autonomous terminal designed for high-precision digital asset growth. By combining neural-network market scanning with strict risk management, it identifies and executes 5m scalping opportunities across USDT-margined perpetual pairs. 
@@ -1228,10 +1228,10 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-8 bg-orange-600/5 border border-orange-500/10 rounded-3xl">
+            <div className="p-8 bg-emerald-600/5 border border-emerald-500/10 rounded-3xl">
               <div className="flex items-start gap-6">
-                <div className="w-12 h-12 bg-orange-600/20 rounded-2xl flex items-center justify-center flex-shrink-0">
-                  <Zap className="text-orange-500 w-6 h-6" />
+                <div className="w-12 h-12 bg-emerald-600/20 rounded-2xl flex items-center justify-center flex-shrink-0">
+                  <Activity className="text-emerald-500 w-6 h-6" />
                 </div>
                 <div>
                   <h4 className="text-lg font-bold mb-1">Execution Risk Protocol</h4>
@@ -1240,7 +1240,7 @@ export default function App() {
                   </p>
                   <div className="flex items-center gap-4">
                     <div className="text-[10px] font-bold text-zinc-500 border border-white/10 px-3 py-1 rounded-full uppercase">Current: Balanced Risk</div>
-                    <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest font-mono">MDD Limit: 5.0%</div>
+                    <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest font-mono">MDD Limit: 5.0%</div>
                   </div>
                 </div>
               </div>
@@ -1343,7 +1343,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <h3 className="text-xl font-bold flex items-center gap-3">
-                      <Bell className="text-orange-500" /> Telegram Alerts
+                      <Bell className="text-emerald-500" /> Telegram Alerts
                     </h3>
                     <div className="space-y-4">
                       <div className="space-y-1">
@@ -1397,7 +1397,7 @@ export default function App() {
       </main>
 
       {/* Floating Action Button for Mobile Settings */}
-      <button className="md:hidden fixed bottom-24 right-6 w-14 h-14 bg-orange-600 rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform z-50">
+      <button className="md:hidden fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform z-50">
         <Bell className="w-6 h-6" />
       </button>
     </div>
@@ -1424,7 +1424,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
       onClick={onClick}
       className={cn(
         "flex flex-col md:w-16 md:h-16 items-center justify-center gap-1 transition-all duration-300 relative group",
-        active ? "text-orange-500" : "text-zinc-500 hover:text-white"
+        active ? "text-emerald-500" : "text-zinc-500 hover:text-white"
       )}
     >
       <div className={cn(
@@ -1437,7 +1437,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
       {active && (
         <motion.div 
           layoutId="activeNav"
-          className="absolute -right-0 top-0 bottom-0 w-1 bg-orange-500 rounded-l hidden md:block"
+          className="absolute -right-0 top-0 bottom-0 w-1 bg-emerald-500 rounded-l hidden md:block"
         />
       )}
     </button>
