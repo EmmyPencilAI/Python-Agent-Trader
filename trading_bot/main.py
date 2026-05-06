@@ -1,5 +1,7 @@
 import time
 import logging
+import json
+import urllib.request
 import pandas as pd
 import ccxt
 from config import Config
@@ -194,7 +196,48 @@ class TradingEngine:
             return df
         except Exception as e:
             logger.error(f"Error fetching market data for {symbol}: {e}")
+            # Special handling for restricted locations (451 error) in Paper Trading
+            if self.trading_mode == 'paper' and ('451' in str(e) or 'Eligibility' in str(e)):
+                try:
+                    price = self.get_fallback_price(symbol)
+                    if price:
+                        logger.info(f"Using fallback price for {symbol}: {price}")
+                        # Create dummy OHLCV for strategy compatibility
+                        now = pd.Timestamp.now()
+                        data = {
+                            'timestamp': [now],
+                            'open': [price], 'high': [price], 'low': [price], 'close': [price], 'volume': [0]
+                        }
+                        return pd.DataFrame(data)
+                except Exception as fe:
+                    logger.error(f"Fallback market data failed: {fe}")
             return pd.DataFrame()
+
+    def get_fallback_price(self, symbol):
+        try:
+            # Map symbol to coingecko id
+            mapping = {
+                "BTCUSDT": "bitcoin",
+                "ETHUSDT": "ethereum",
+                "BNBUSDT": "binancecoin",
+                "SOLUSDT": "solana",
+                "ADAUSDT": "cardano"
+            }
+            # Handle both formats symbol/usdt or symbolusdt
+            clean_symbol = symbol.replace('/', '').upper()
+            cg_id = mapping.get(clean_symbol)
+            
+            if not cg_id:
+                cg_id = clean_symbol.replace('USDT', '').lower()
+
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                return float(data[cg_id]['usd'])
+        except Exception as e:
+            logger.error(f"Could not fetch fallback price: {e}")
+            return None
 
     def check_balance_thresholds(self, balance):
         if self.trading_mode != "real":

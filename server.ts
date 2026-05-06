@@ -376,8 +376,8 @@ async function startServer() {
 
   // Helper to fetch multiple prices
   const fetchRealPrices = async () => {
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
     try {
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
       const res = await axios.get(`https://api.binance.com/api/v3/ticker/price`);
       const allPrices = res.data;
       const data: Record<string, number> = {};
@@ -387,7 +387,29 @@ async function startServer() {
         }
       });
       return data;
-    } catch (err) {
+    } catch (err: any) {
+      // Fallback if Binance is restricted (451 error)
+      if (err.response?.status === 451 || err.code === 'ERR_BAD_RESPONSE') {
+        try {
+          const mapping: Record<string, string> = { 
+            'BTCUSDT': 'bitcoin', 
+            'ETHUSDT': 'ethereum', 
+            'SOLUSDT': 'solana', 
+            'BNBUSDT': 'binancecoin' 
+          };
+          const ids = Object.values(mapping).join(',');
+          const cgRes = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
+          const data: Record<string, number> = {};
+          Object.entries(mapping).forEach(([symbol, cgId]) => {
+            if (cgRes.data[cgId]) {
+              data[symbol] = cgRes.data[cgId].usd;
+            }
+          });
+          return data;
+        } catch (cgErr) {
+          console.error('Fallback Coingecko failed:', cgErr);
+        }
+      }
       return { BTCUSDT: 81240.50, ETHUSDT: 2450.20 };
     }
   };
@@ -395,10 +417,14 @@ async function startServer() {
   app.get('/api/server-ip', async (req, res) => {
     try {
       const response = await axios.get('https://api.ipify.org?format=json');
-      res.json({ ip: response.data.ip });
+      const binanceCheck = await axios.get('https://api.binance.com/api/v3/time').catch(e => e.response);
+      res.json({ 
+        ip: response.data.ip,
+        binance_status: binanceCheck?.status === 200 ? 'Allowed' : (binanceCheck?.status === 451 ? 'Restricted (451)' : 'Unknown (' + binanceCheck?.status + ')')
+      });
     } catch (err) {
-      console.error('Failed to fetch server IP:', err);
-      res.status(500).json({ error: 'Failed to fetch server IP' });
+      console.error('Failed to fetch server diagnostics:', err);
+      res.status(500).json({ error: 'Failed to fetch server diagnostics' });
     }
   });
 
@@ -416,7 +442,13 @@ async function startServer() {
         close: parseFloat(k[4]),
       }));
       res.json(klines);
-    } catch (err) {
+    } catch (err: any) {
+      // Fallback for KLines if blocked
+      if (err.response?.status === 451) {
+        // Return dummy data or try alternative source
+        // For simplicity, we return a message that will trigger frontend warning
+        return res.status(451).json({ error: 'Market data restricted in this region (451). Use a VPN or different exchange.' });
+      }
       res.status(500).json({ error: 'Failed to fetch klines' });
     }
   });
@@ -428,7 +460,12 @@ async function startServer() {
         ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].includes(p.symbol)
       );
       res.json(filtered);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.response?.status === 451) {
+        const fallback = await fetchRealPrices();
+        const formatted = Object.entries(fallback).map(([symbol, price]) => ({ symbol, price: String(price) }));
+        return res.json(formatted);
+      }
       res.status(500).json({ error: 'Failed to fetch prices' });
     }
   });
