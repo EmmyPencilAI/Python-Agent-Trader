@@ -33,14 +33,22 @@ class ScalpingStrategy(Strategy):
         confidence = 0
         
         # Enhanced strategy: RSI oversold/overbought + MACD crossover + Trend Filter
-        # BUY: RSI < 35, MACD > Signal, Price > EMA50 (Bullish trend confirmed)
-        if last_row['rsi'] < 35 and last_row['macd'] > last_row['macd_signal'] and last_row['close'] > last_row['ema50']:
+        # Slightly relaxed for more action on lower timeframes
+        # BUY: RSI < 40, MACD > Signal, Price > EMA50 (Bullish trend confirmed)
+        if last_row['rsi'] < 40 and last_row['macd'] > last_row['macd_signal'] and last_row['close'] > last_row['ema50']:
             action = "BUY"
-            confidence = 85
-        # SELL: RSI > 65, MACD < Signal, Price < EMA50 (Bearish trend confirmed)
-        elif last_row['rsi'] > 65 and last_row['macd'] < last_row['macd_signal'] and last_row['close'] < last_row['ema50']:
+            confidence = 80
+        # SELL: RSI > 60, MACD < Signal, Price < EMA50 (Bearish trend confirmed)
+        elif last_row['rsi'] > 60 and last_row['macd'] < last_row['macd_signal'] and last_row['close'] < last_row['ema50']:
             action = "SELL"
-            confidence = 85
+            confidence = 80
+        # Aggressive Mode Fallback: if no trend filter matches but indicators are extreme
+        elif last_row['rsi'] < 25:
+            action = "BUY"
+            confidence = 60
+        elif last_row['rsi'] > 75:
+            action = "SELL"
+            confidence = 60
             
         return {
             "action": action,

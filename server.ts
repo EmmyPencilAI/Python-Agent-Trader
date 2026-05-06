@@ -20,7 +20,8 @@ function managePythonBot(action: string) {
     if (pythonProcess) return;
     botStartTime = Date.now();
     console.log('[AEGIS] Starting Python Trading Engine...');
-    try {
+    
+    const startBot = () => {
       const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
       const pythonBinary = 'python3';
       
@@ -32,7 +33,6 @@ function managePythonBot(action: string) {
       pythonProcess.stderr.on('data', (data: any) => {
         const errorMsg = data.toString();
         console.error(`[AEGIS-PYTHON-ERR] ${errorMsg}`);
-        // If we see a module error, we can inform the user or try to handle it
       });
 
       pythonProcess.on('error', (err: any) => {
@@ -48,8 +48,34 @@ function managePythonBot(action: string) {
         console.log('[AEGIS] Restarting Python bot...');
         setTimeout(() => managePythonBot('running'), 5000);
       });
+    };
+
+    try {
+      // Step: Ensure pandas is installed (Fixes ModuleNotFoundError)
+      // This is helpful in environments where build steps might be skipped or for local/preview
+      console.log('[AEGIS] Verifying Python dependencies (pandas)...');
+      const checkDeps = spawn('python3', ['-c', 'import pandas; print(pandas.__version__)']);
+      
+      checkDeps.on('close', (code) => {
+        if (code !== 0) {
+          console.log('[AEGIS] pandas not found. Attempting to install...');
+          const install = spawn('pip3', ['install', 'pandas', 'numpy', 'ccxt', 'python-binance', 'python-dotenv']);
+          install.on('close', (installCode) => {
+            if (installCode === 0) {
+              console.log('[AEGIS] Dependencies installed successfully.');
+            } else {
+              console.error('[AEGIS] Local pip3 install failed. Proceeding anyway...');
+            }
+            startBot();
+          });
+        } else {
+          console.log('[AEGIS] Python dependencies verified.');
+          startBot();
+        }
+      });
     } catch (err: any) {
-      console.error('[AEGIS] Error spawning Python process:', err.message);
+      console.error('[AEGIS] Error during dependency check:', err.message);
+      startBot();
     }
   } else if (action === 'restart') {
     if (pythonProcess) {

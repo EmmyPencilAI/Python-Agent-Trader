@@ -141,8 +141,14 @@ class TradingEngine:
             logger.warning(f"No {self.trading_mode} balance available for quantity calculation.")
             return 0.0
             
+        # Risk Management
         alloc_usdt = balance * (Config.CAPITAL_PER_TRADE_PCT / 100)
         
+        # For very small accounts (< $50), use a higher percentage to ensure we can meet minimums and see growth
+        if balance < 50:
+            alloc_usdt = balance * 0.95 # Use 95% of balance to allow for fees
+            logger.debug(f"Small balance detected ({balance}), using 95% allocation: {alloc_usdt}")
+
         # Enforce minimum trade size (Bitget/Binance usually require ~5 USDT)
         min_trade_size = 5.1 # Use a bit more than 5 to be safe
         if alloc_usdt < min_trade_size:
@@ -235,8 +241,8 @@ class TradingEngine:
 
     def get_market_data(self, symbol):
         try:
-            # Fetch OHLCV data (1h timeframe, 100 limit)
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+            # Fetch OHLCV data (1m timeframe for scalping, 100 limit)
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             return df
@@ -457,10 +463,20 @@ class TradingEngine:
 
                 for symbol in Config.SYMBOLS:
                     try:
+                        logger.info(f"🔍 Scanning {symbol} on {self.exchange.id} ({self.trading_mode.upper()})...")
                         df = self.get_market_data(symbol)
-                        if df.empty: continue
+                        if df.empty: 
+                            logger.warning(f"⚠️ No market data for {symbol}. Skipping.")
+                            continue
                         
                         signal = self.strategies[self.current_strategy].generate_signal(df)
+                        # Log technicals for debugging
+                        last = df.iloc[-1]
+                        logger.debug(f"📊 {symbol} Technicals | RSI: {last.get('rsi',0):.2f} | MACD: {last.get('macd',0):.4f} | Price: {last['close']}")
+                        
+                        if signal['action'] == "HOLD":
+                            continue
+                        
                         signal['symbol'] = symbol
                         signal['entry'] = df.iloc[-1]['close']
                         self.execute_trade(symbol, signal)
