@@ -661,6 +661,78 @@ export default function App() {
                 icon={<Zap className="text-blue-500" />}
               />
             </div>
+
+            {/* QUICK SETUP: Paper Trading Initialization */}
+            <div className="bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] p-8 animate-in fade-in slide-in-from-top-4">
+                <div className="flex items-center justify-between mb-6">
+                   <div className="flex items-center gap-3">
+                    <div className="p-3 bg-orange-600 rounded-2xl">
+                      <Zap className="text-white w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">Paper Trade Quick Setup</h3>
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Initialize virtual liquidity for immediate testing</p>
+                    </div>
+                   </div>
+                   <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] font-bold text-zinc-400 uppercase">Environment: Virtual Core</div>
+                </div>
+                <div className="flex flex-col md:flex-row gap-6">
+                   <div className="flex-1 p-5 bg-black/40 border border-white/5 rounded-2xl">
+                      <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-3 text-center md:text-left">Select Starting Equity (USDT)</label>
+                      <div className="flex items-center gap-3 mb-4 justify-center md:justify-start">
+                        <span className="text-zinc-600 font-bold text-2xl">$</span>
+                        <input 
+                          type="number"
+                          value={paperBalance}
+                          onChange={(e) => setPaperBalance(parseFloat(e.target.value))}
+                          className="bg-transparent border-none p-0 text-3xl font-black font-mono focus:ring-0 w-40"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                        {[10, 30, 50, 100, 500, 1000, 2500, 5000].map(amt => (
+                          <button 
+                            key={amt}
+                            onClick={() => setPaperBalance(amt)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-black border transition-all",
+                              paperBalance === amt 
+                                ? "bg-orange-600 border-orange-600 text-white shadow-lg shadow-orange-600/20" 
+                                : "bg-white/5 border-white/10 text-zinc-500 hover:border-white/20"
+                            )}
+                          >
+                            ${amt}
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                   <div className="flex flex-col justify-end">
+                     <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                            body: JSON.stringify({ 
+                              paper_balance: paperBalance,
+                              ...exchangeKeys
+                            })
+                          });
+                          if (res.ok) {
+                            addNotification('success', 'Aegis Core synchronized. Paper liquidity ready.');
+                          } else {
+                            addNotification('error', 'Protocol synchronization failed. Check Auth Key.');
+                          }
+                        } catch (err) {
+                          addNotification('error', 'Network connection interrupted.');
+                        }
+                      }}
+                      className="h-full md:h-auto py-5 px-10 bg-white text-black hover:bg-zinc-200 rounded-3xl font-black text-xs uppercase tracking-[0.2em] transition-all active:scale-95 shadow-2xl"
+                     >
+                       INITIALIZE PAPER CORE
+                     </button>
+                   </div>
+                </div>
+            </div>
             <div className="p-8 bg-orange-600/5 border border-orange-500/20 rounded-[2.5rem] relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                  <TrendingUp size={120} className="text-orange-500" />
@@ -1217,70 +1289,6 @@ export default function App() {
                       </p>
                     </div>
                   </div>
-                </div>
-             </div>
-
-             {/* Paper Trading Initialization */}
-             <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
-                <div className="flex items-center justify-between mb-6">
-                   <h3 className="text-xl font-bold flex items-center gap-3">
-                    <History className="text-zinc-500" /> Paper Core Initialization
-                  </h3>
-                  <div className="px-3 py-1 bg-zinc-800 rounded-full text-[10px] font-bold text-zinc-400 uppercase">Environment: Virtual</div>
-                </div>
-                <div className="flex gap-4">
-                   <div className="flex-1 p-4 bg-white/5 border border-white/10 rounded-2xl">
-                      <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Initial Starting Equity (USDT)</label>
-                      <div className="flex items-center gap-3">
-                        <span className="text-zinc-600 font-bold">$</span>
-                        <input 
-                          type="number"
-                          value={paperBalance}
-                          onChange={(e) => setPaperBalance(parseFloat(e.target.value))}
-                          className="w-full bg-transparent border-none p-0 text-xl font-bold font-mono focus:ring-0"
-                        />
-                      </div>
-                      <div className="flex gap-2 mt-4">
-                        {[10, 30, 50, 100, 500, 1000].map(amt => (
-                          <button 
-                            key={amt}
-                            onClick={() => setPaperBalance(amt)}
-                            className={cn(
-                              "px-2 py-1 rounded-md text-[10px] font-bold border transition-all",
-                              paperBalance === amt 
-                                ? "bg-orange-500/20 border-orange-500/50 text-orange-400" 
-                                : "bg-black/20 border-white/5 text-zinc-500 hover:border-white/20"
-                            )}
-                          >
-                            ${amt}
-                          </button>
-                        ))}
-                      </div>
-                   </div>
-                   <button 
-                    onClick={async () => {
-                      try {
-                        const res = await fetch(`${BASE_URL}/api/bot/settings`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                          body: JSON.stringify({ 
-                            paper_balance: paperBalance,
-                            ...exchangeKeys
-                          })
-                        });
-                        if (res.ok) {
-                          addNotification('success', 'Aegis Core synchronized with new configurations.');
-                        } else {
-                          addNotification('error', 'Protocol synchronization failed. Check API Key.');
-                        }
-                      } catch (err) {
-                        addNotification('error', 'Network error during synchronization.');
-                      }
-                    }}
-                    className="px-8 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95"
-                   >
-                     COMMIT CHANGES
-                   </button>
                 </div>
              </div>
           </div>
