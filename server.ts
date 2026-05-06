@@ -264,10 +264,32 @@ async function startServer() {
 
   app.post('/api/bot/settings', apiKeyGuard, (req, res) => {
     try {
-      const { mode, exchange, paper_balance } = req.body;
-      if (mode) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'mode'").run(mode);
-      if (exchange) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'exchange'").run(exchange);
-      if (paper_balance !== undefined) db.prepare("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'").run(paper_balance.toString());
+      const { 
+        mode, 
+        exchange, 
+        paper_balance, 
+        binance_api_key, 
+        binance_secret_key,
+        bitget_api_key,
+        bitget_secret_key,
+        bitget_passphrase,
+        telegram_bot_token,
+        telegram_chat_id
+      } = req.body;
+
+      if (mode) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('mode', ?)").run(mode);
+      if (exchange) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('exchange', ?)").run(exchange);
+      if (paper_balance !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
+      
+      if (binance_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
+      if (binance_secret_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_secret_key', ?)").run(binance_secret_key);
+      if (bitget_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_api_key', ?)").run(bitget_api_key);
+      if (bitget_secret_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_secret_key', ?)").run(bitget_secret_key);
+      if (bitget_passphrase !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_passphrase', ?)").run(bitget_passphrase);
+      
+      if (telegram_bot_token !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_bot_token', ?)").run(telegram_bot_token);
+      if (telegram_chat_id !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_chat_id', ?)").run(telegram_chat_id);
+
       res.json({ success: true });
     } catch (err) {
       console.error('API Settings Error:', err);
@@ -344,6 +366,16 @@ async function startServer() {
       return { BTCUSDT: 81240.50, ETHUSDT: 2450.20 };
     }
   };
+
+  app.get('/api/server-ip', async (req, res) => {
+    try {
+      const response = await axios.get('https://api.ipify.org?format=json');
+      res.json({ ip: response.data.ip });
+    } catch (err) {
+      console.error('Failed to fetch server IP:', err);
+      res.status(500).json({ error: 'Failed to fetch server IP' });
+    }
+  });
 
   // K-Line dataProxy for Charts
   app.get('/api/market/klines', async (req, res) => {

@@ -28,7 +28,8 @@ import {
   LayoutDashboard,
   Zap,
   BarChart3,
-  CandlestickChart
+  CandlestickChart,
+  Globe
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -193,6 +194,18 @@ export default function App() {
   const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
+  const [serverIp, setServerIp] = useState<string>('');
+  
+  // API Keys and External Config
+  const [exchangeKeys, setExchangeKeys] = useState({
+    binance_api_key: '',
+    binance_secret_key: '',
+    bitget_api_key: '',
+    bitget_secret_key: '',
+    bitget_passphrase: '',
+    telegram_bot_token: '',
+    telegram_chat_id: ''
+  });
   
   // Internal error handler to prevent blank screens
   useEffect(() => {
@@ -275,6 +288,21 @@ export default function App() {
           
           setBalance(parseFloat(String(currentModeBal || '0')));
           setInitialBalance(parseFloat(String(currentModeInit || '0')));
+          
+          // Sync existing keys from server (non-secret parts)
+          setExchangeKeys(prev => ({
+            ...prev,
+            binance_api_key: statusData.binance_api_key || '',
+            bitget_api_key: statusData.bitget_api_key || '',
+            telegram_bot_token: statusData.telegram_bot_token || '',
+            telegram_chat_id: statusData.telegram_chat_id || ''
+          }));
+        }
+
+        const ipRes = await fetch(`${BASE_URL}/api/server-ip`).catch(() => null);
+        if (ipRes && ipRes.ok) {
+           const ipData = await ipRes.json();
+           setServerIp(ipData.ip);
         }
 
         setTrades(Array.isArray(tradesData) ? tradesData : []);
@@ -1049,69 +1077,209 @@ export default function App() {
 
         {/* Other Tabs */}
         {activeTab === 'settings' && (
-          <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4">
+          <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 pb-12">
+             {/* Account Sync Status */}
              <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
-                <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                  <ShieldCheck className="text-orange-500" /> API Configuration
-                </h3>
-                <div className="space-y-6">
-                     <SettingField label="Binance Status" value="Securely Linked" color="emerald" />
-                     <SettingField label="Bitget Status" value="Available" color="amber" />
-                     
-                     <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Internal API Key (Aegis Dashboard Access)</label>
-                        <input 
-                          type="password" 
-                          placeholder="Your API_SECRET_KEY"
-                          value={apiKey}
-                          onChange={(e) => {
-                            setApiKey(e.target.value);
-                            localStorage.setItem('aegis_api_key', e.target.value);
-                          }}
-                          className="w-full bg-transparent border-none p-0 text-lg font-bold font-mono focus:ring-0 placeholder:text-zinc-700"
-                        />
-                     </div>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <History className="text-orange-500" /> Dashboard Auth & Sync
+                  </h3>
+                  <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">v4.2.0-STABLE</div>
+                </div>
+                
+                <div className="p-5 bg-white/5 border border-white/10 rounded-2xl mb-6">
+                    <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 flex justify-between">
+                      <span>Internal API Key (Protective Layer)</span>
+                      <span className="text-orange-500/50">Stored Locally</span>
+                    </label>
+                    <input 
+                      type="password" 
+                      placeholder="Access Key..."
+                      value={apiKey}
+                      onChange={(e) => {
+                        setApiKey(e.target.value);
+                        localStorage.setItem('aegis_api_key', e.target.value);
+                      }}
+                      className="w-full bg-transparent border-none p-0 text-lg font-bold font-mono focus:ring-0 placeholder:text-zinc-700"
+                    />
+                </div>
 
-                    <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-2xl flex items-start gap-4">
-                      <Bell className="text-orange-500 mt-1" />
-                      <div>
-                        <h4 className="font-bold text-sm">Security Advisory</h4>
-                        <p className="text-xs text-zinc-500 leading-relaxed mt-1">API keys are stored server-side. For maximum safety, generate keys with **Spot Trading only** enabled and whitelist your server's static IP address.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-xs font-black text-zinc-500 uppercase tracking-widest">Binance Spot</span>
+                      <span className={cn("w-2 h-2 rounded-full", exchangeKeys.binance_api_key ? "bg-emerald-500 animate-pulse" : "bg-zinc-700")}></span>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">API Key</label>
+                        <input 
+                          type="text"
+                          value={exchangeKeys.binance_api_key}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, binance_api_key: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          placeholder="Binance API Key"
+                        />
                       </div>
-                   </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Secret Key</label>
+                        <input 
+                          type="password"
+                          value={exchangeKeys.binance_secret_key}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, binance_secret_key: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          placeholder="Binance Secret Key"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-xs font-black text-zinc-500 uppercase tracking-widest">Bitget Spot</span>
+                      <span className={cn("w-2 h-2 rounded-full", exchangeKeys.bitget_api_key ? "bg-emerald-500 animate-pulse" : "bg-zinc-700")}></span>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">API Key</label>
+                        <input 
+                          type="text"
+                          value={exchangeKeys.bitget_api_key}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_api_key: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          placeholder="Bitget API Key"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Secret Key</label>
+                        <input 
+                          type="password"
+                          value={exchangeKeys.bitget_secret_key}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_secret_key: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          placeholder="Bitget Secret Key"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
              </div>
-             
+
+             {/* Telegram & Security */}
              <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
-                <h3 className="text-2xl font-bold mb-6">Execution Logic</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-bold flex items-center gap-3">
+                      <Bell className="text-orange-500" /> Telegram Alerts
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Bot Token</label>
+                        <input 
+                          type="password"
+                          value={exchangeKeys.telegram_bot_token}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_bot_token: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Chat ID</label>
+                        <input 
+                          type="text"
+                          value={exchangeKeys.telegram_chat_id}
+                          onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_chat_id: e.target.value}))}
+                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-bold flex items-center gap-3">
+                      <Globe className="text-emerald-500" /> Whitelisting
+                    </h3>
+                    <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
+                      <p className="text-[10px] text-zinc-500 uppercase font-bold mb-2">Static Server IP Address</p>
+                      <div className="flex items-center justify-between">
+                        <code className="text-emerald-400 font-mono font-bold text-sm tracking-widest">{serverIp || '0.0.0.0'}</code>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(serverIp);
+                            addNotification('info', 'IP address copied to clipboard.');
+                          }}
+                          className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md hover:bg-emerald-500/30 transition-colors"
+                        >
+                          COPY IP
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-zinc-600 leading-relaxed mt-3 uppercase tracking-tighter italic">
+                        Enable "IP Whitelisting" on Binance/Bitget using this address for maximum security.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+             </div>
+
+             {/* Paper Trading Initialization */}
+             <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
+                <div className="flex items-center justify-between mb-6">
+                   <h3 className="text-xl font-bold flex items-center gap-3">
+                    <History className="text-zinc-500" /> Paper Core Initialization
+                  </h3>
+                  <div className="px-3 py-1 bg-zinc-800 rounded-full text-[10px] font-bold text-zinc-400 uppercase">Environment: Virtual</div>
+                </div>
+                <div className="flex gap-4">
+                   <div className="flex-1 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                      <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Initial Starting Equity (USDT)</label>
+                      <div className="flex items-center gap-3">
+                        <span className="text-zinc-600 font-bold">$</span>
+                        <input 
+                          type="number"
+                          value={paperBalance}
+                          onChange={(e) => setPaperBalance(parseFloat(e.target.value))}
+                          className="w-full bg-transparent border-none p-0 text-xl font-bold font-mono focus:ring-0"
+                        />
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        {[10, 30, 50, 100, 500, 1000].map(amt => (
+                          <button 
+                            key={amt}
+                            onClick={() => setPaperBalance(amt)}
+                            className={cn(
+                              "px-2 py-1 rounded-md text-[10px] font-bold border transition-all",
+                              paperBalance === amt 
+                                ? "bg-orange-500/20 border-orange-500/50 text-orange-400" 
+                                : "bg-black/20 border-white/5 text-zinc-500 hover:border-white/20"
+                            )}
+                          >
+                            ${amt}
+                          </button>
+                        ))}
+                      </div>
+                   </div>
                    <button 
-                    onClick={() => {
-                      setStatus(s => ({...s, active_strategy: 'Scalping Elite'}));
-                      addNotification('info', 'Switched to Scalping Elite strategy.');
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                          body: JSON.stringify({ 
+                            paper_balance: paperBalance,
+                            ...exchangeKeys
+                          })
+                        });
+                        if (res.ok) {
+                          addNotification('success', 'Aegis Core synchronized with new configurations.');
+                        } else {
+                          addNotification('error', 'Protocol synchronization failed. Check API Key.');
+                        }
+                      } catch (err) {
+                        addNotification('error', 'Network error during synchronization.');
+                      }
                     }}
-                    className={cn(
-                      "p-4 rounded-2xl border text-left transition-all",
-                      status.active_strategy === 'Scalping Elite' ? "border-orange-500 bg-orange-500/10" : "border-white/5 bg-white/5 hover:border-white/20"
-                    )}
+                    className="px-8 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95"
                    >
-                      <Zap className="text-orange-500 mb-2" />
-                      <div className="font-bold">Scalping Elite</div>
-                      <div className="text-[10px] text-zinc-400 mt-1">Optimized for BTC/ETH 5m volatility. High frequency, tight stops.</div>
-                   </button>
-                   <button 
-                    onClick={() => {
-                      setStatus(s => ({...s, active_strategy: 'Trend Swing'}));
-                      addNotification('info', 'Switched to Trend Swing strategy.');
-                    }}
-                    className={cn(
-                      "p-4 rounded-2xl border text-left transition-all",
-                      status.active_strategy === 'Trend Swing' ? "border-orange-500 bg-orange-500/10" : "border-white/5 bg-white/5 hover:border-white/20"
-                    )}
-                   >
-                      <Activity className="text-zinc-500 mb-2" />
-                      <div className="font-bold">Trend Swing</div>
-                      <div className="text-[10px] text-zinc-400 mt-1">EMA 200 crossover logic. Lower volume, higher PnL per trade.</div>
+                     COMMIT CHANGES
                    </button>
                 </div>
              </div>

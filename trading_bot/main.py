@@ -44,17 +44,49 @@ class TradingEngine:
         exch_id = self.active_exchange_id
         logger.info(f"Initializing exchange: {exch_id} in {self.trading_mode} mode")
         
+        # Try to load API keys from DB first (user configured via Dashboard)
+        try:
+            binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
+            binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
+            bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
+            bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
+            bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
+            
+            binance_key = binance_key[0] if binance_key else Config.BINANCE_API_KEY
+            binance_secret = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
+            bitget_key = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
+            bitget_secret = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
+            bitget_pwd = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
+            
+            # Store current keys to detect changes
+            self.current_keys = {
+                'binance_key': binance_key,
+                'binance_secret': binance_secret,
+                'bitget_key': bitget_key,
+                'bitget_secret': bitget_secret,
+                'bitget_pwd': bitget_pwd,
+                'exch_id': exch_id
+            }
+
+        except Exception as e:
+            logger.error(f"Error loading keys from DB: {e}")
+            binance_key = Config.BINANCE_API_KEY
+            binance_secret = Config.BINANCE_SECRET_KEY
+            bitget_key = Config.BITGET_API_KEY
+            bitget_secret = Config.BITGET_SECRET_KEY
+            bitget_pwd = Config.BITGET_PASSPHRASE
+
         if exch_id == 'binance':
             return ccxt.binance({
-                'apiKey': Config.BINANCE_API_KEY,
-                'secret': Config.BINANCE_SECRET_KEY,
+                'apiKey': binance_key,
+                'secret': binance_secret,
                 'enableRateLimit': True,
             })
         elif exch_id == 'bitget':
             return ccxt.bitget({
-                'apiKey': Config.BITGET_API_KEY,
-                'secret': Config.BITGET_SECRET_KEY,
-                'password': Config.BITGET_PASSPHRASE,
+                'apiKey': bitget_key,
+                'secret': bitget_secret,
+                'password': bitget_pwd,
                 'enableRateLimit': True,
             })
         else:
@@ -67,7 +99,9 @@ class TradingEngine:
         else:
             try:
                 bal_data = self.exchange.fetch_balance()
-                balance = float(bal_data.get('USDT', {}).get('free', 0.0))
+                # Use total balance or free balance? Dashboard usually prefers total equity.
+                # Standard CCXT balance format has 'total' and 'free'
+                balance = float(bal_data.get('USDT', {}).get('total', bal_data.get('USDT', {}).get('free', 0.0)))
                 # Sync real balance back to DB for Dashboard visibility
                 self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(balance)))
                 # Set initial if it is 0
@@ -84,7 +118,7 @@ class TradingEngine:
     def calculate_quantity(self, symbol, price):
         balance = self.get_usdt_balance()
         if balance <= 0:
-            logger.warning(f"No {self.trading_mode} balance available.")
+            logger.warning(f"No {self.trading_mode} balance available for quantity calculation.")
             return 0.0
             
         alloc_usdt = balance * (Config.CAPITAL_PER_TRADE_PCT / 100)
@@ -99,21 +133,21 @@ class TradingEngine:
         quantity = self.calculate_quantity(symbol, price)
         
         if quantity <= 0:
+            logger.warning(f"Quantity 0 for {symbol}, capital setting might be too low.")
             return
 
-        logger.info(f"🚀 [{self.trading_mode.upper()}] Executing {signal['action']} | {symbol} | Price: {price}")
+        logger.info(f"🚀 [{self.trading_mode.upper()}] Executing {signal['action']} | {symbol} | Price: {price} | Qty: {quantity}")
         
         if self.trading_mode == "real":
             try:
                 # Real Execution via CCXT
-                # if signal['action'] == 'BUY':
-                #     order = self.exchange.create_market_buy_order(symbol, quantity)
-                # else:
-                #     order = self.exchange.create_market_sell_order(symbol, quantity)
-                # logger.info(f"Real Order Success: {order['id']}")
-                pass 
+                if signal['action'] == 'BUY':
+                    order = self.exchange.create_market_buy_order(symbol, quantity)
+                else:
+                    order = self.exchange.create_market_sell_order(symbol, quantity)
+                logger.info(f"✅ Real Order Success: {order['id']}")
             except Exception as e:
-                logger.error(f"Exchange Order Error: {e}")
+                logger.error(f"❌ Exchange Order Error: {e}")
                 return
         else:
             # Paper Trading: Deduct from virtual balance
@@ -127,7 +161,7 @@ class TradingEngine:
             # Update DB for paper balance persistence
             self.db.conn.execute("UPDATE bot_state SET value = ? WHERE key = 'paper_balance'", (str(self.paper_balance),))
             self.db.conn.commit()
-            logger.info(f"Paper Executed. New virtual balance: {self.paper_balance}")
+            logger.info(f"🧪 Paper Executed. New virtual balance: {self.paper_balance}")
         
         trade_id = self.db.log_trade({
             "symbol": symbol,
@@ -151,20 +185,75 @@ class TradingEngine:
             "confidence": signal['confidence']
         })
 
+    def get_market_data(self, symbol):
+        try:
+            # Fetch OHLCV data (1h timeframe, 100 limit)
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching market data for {symbol}: {e}")
+            return pd.DataFrame()
+
+    def check_balance_thresholds(self, balance):
+        if self.trading_mode != "real":
+            return
+            
+        thresholds = [1000, 2000, 5000, 10000, 25000, 50000, 100000]
+        try:
+            last_notified_row = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'last_notified_threshold'").fetchone()
+            last_notified = float(last_notified_row[0]) if last_notified_row else 0.0
+            
+            for t in thresholds:
+                if balance >= t > last_notified:
+                    msg = f"🎊 *MILESTONE REACHED*\n\nReal account balance has surpassed *${t:,.2f}*!\n\n*Current Balance:* ${balance:,.2f}"
+                    TelegramManager.send_message(msg)
+                    self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("last_notified_threshold", str(t)))
+                    self.db.conn.commit()
+                    break
+        except Exception as e:
+            logger.error(f"Error checking balance thresholds: {e}")
+
     def run(self):
         logger.info("Bot logic ready...")
         last_balance_record = 0
+        last_threshold_check = 0
         
         while True:
             # Refresh state every loop to detect Web Dashboard changes
             self._sync_state_from_db()
             
-            # Re-init exchange if it changed in settings
-            if not self.exchange or self.exchange.id != self.active_exchange_id:
+            # Re-init exchange if it changed in settings (id or keys)
+            keys_changed = False
+            try:
+                binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
+                binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
+                bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
+                bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
+                bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
+
+                b_k = binance_key[0] if binance_key else Config.BINANCE_API_KEY
+                b_s = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
+                bg_k = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
+                bg_s = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
+                bg_p = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
+
+                if (b_k != self.current_keys.get('binance_key') or 
+                    b_s != self.current_keys.get('binance_secret') or
+                    bg_k != self.current_keys.get('bitget_key') or
+                    bg_s != self.current_keys.get('bitget_secret') or
+                    bg_p != self.current_keys.get('bitget_pwd') or
+                    self.active_exchange_id != self.current_keys.get('exch_id')):
+                    keys_changed = True
+            except:
+                pass
+
+            if not self.exchange or keys_changed:
                 try:
                     self.exchange = self._init_exchange()
                 except Exception as e:
-                    logger.error(f"Failed to switch exchange: {e}")
+                    logger.error(f"Failed to initialize/switch exchange: {e}")
                     time.sleep(10)
                     continue
 
@@ -175,6 +264,12 @@ class TradingEngine:
                     self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, current_bal))
                     self.db.conn.commit()
                     last_balance_record = time.time()
+                
+                # Check thresholds every scan
+                if self.trading_mode == "real" and time.time() - last_threshold_check > Config.SCAN_INTERVAL:
+                    current_bal = self.get_usdt_balance()
+                    self.check_balance_thresholds(current_bal)
+                    last_threshold_check = time.time()
 
                 for symbol in Config.SYMBOLS:
                     try:
