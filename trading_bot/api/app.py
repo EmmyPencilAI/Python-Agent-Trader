@@ -29,6 +29,13 @@ class SettingsRequest(BaseModel):
     exchange: Optional[str] = None
     paper_balance: Optional[float] = None
 
+class StrategyRequest(BaseModel):
+    rsi_period: Optional[int] = None
+    ema_short: Optional[int] = None
+    ema_long: Optional[int] = None
+    macd_fast: Optional[int] = None
+    macd_slow: Optional[int] = None
+
 def verify_api_key(x_api_key: str):
     """Verify API key from header"""
     if x_api_key != Config.API_SECRET_KEY:
@@ -104,6 +111,28 @@ async def update_settings(request: SettingsRequest, x_api_key: Optional[str] = H
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to update settings")
+
+@app.post("/bot/strategy")
+async def update_strategy(request: StrategyRequest, x_api_key: Optional[str] = Header(None)):
+    """Update strategy parameters for the bot"""
+    verify_api_key(x_api_key)
+    try:
+        if request.rsi_period is not None:
+            db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ('strategy_rsi_period', str(request.rsi_period)))
+        if request.ema_short is not None:
+            db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ('strategy_ema_short', str(request.ema_short)))
+        if request.ema_long is not None:
+            db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ('strategy_ema_long', str(request.ema_long)))
+        if request.macd_fast is not None:
+            db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ('strategy_macd_fast', str(request.macd_fast)))
+        if request.macd_slow is not None:
+            db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ('strategy_macd_slow', str(request.macd_slow)))
+
+        db.conn.commit()
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error updating strategy: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update strategy")
 
 @app.get("/config")
 async def get_config(x_api_key: Optional[str] = Header(None)):

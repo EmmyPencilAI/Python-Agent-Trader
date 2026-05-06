@@ -47,7 +47,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
 // API Configuration
-const API_KEY = import.meta.env.VITE_API_KEY || 'Cybunk2.0X';
+const DEFAULT_API_KEY = import.meta.env.VITE_API_KEY || '';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Mock data for initial load
@@ -76,7 +76,7 @@ interface Trade {
 }
 
 // Configuration Constants
-const BASE_URL = import.meta.env.VITE_API_URL || '';
+const BASE_URL = API_BASE_URL;
 const WS_URL = BASE_URL 
   ? BASE_URL.replace(/^http/, 'ws') 
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -233,7 +233,7 @@ export default function App() {
   }, [sessionStart, isBotRunning]);
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
-  const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || DEFAULT_API_KEY);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
   const [serverIp, setServerIp] = useState<string>('');
@@ -276,11 +276,19 @@ export default function App() {
     }, 5000);
   };
 
+  const getAuthHeaders = () => {
+    const key = (apiKey || DEFAULT_API_KEY).trim();
+    if (!key) {
+      throw new Error('Missing API key');
+    }
+    return { 'X-API-Key': key };
+  };
+
   // Fetch data from backend API with authentication
   const fetchStatus = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/status`, {
-        headers: { 'X-API-Key': API_KEY }
+        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error(`Status error: ${res.status}`);
       return await res.json();
@@ -293,7 +301,7 @@ export default function App() {
   const fetchTrades = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/trades?limit=50`, {
-        headers: { 'X-API-Key': API_KEY }
+        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error(`Trades error: ${res.status}`);
       const data = await res.json();
@@ -309,7 +317,7 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/bot/toggle`, {
         method: 'POST',
         headers: { 
-          'X-API-Key': API_KEY,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ action })
@@ -331,7 +339,7 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/bot/settings`, {
         method: 'POST',
         headers: { 
-          'X-API-Key': API_KEY,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(settings)
@@ -348,6 +356,10 @@ export default function App() {
 
   const syncAppData = async () => {
     try {
+      if (!apiKey.trim() && !DEFAULT_API_KEY) {
+        setIsInitialLoading(false);
+        return;
+      }
       const statusData = await fetchStatus();
       const tradesData = await fetchTrades();
 
@@ -1090,11 +1102,11 @@ export default function App() {
                   <button 
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${BASE_URL}/api/bot/strategy`, {
+                        const res = await fetch(`${API_BASE_URL}/bot/strategy`, {
                           method: 'POST',
-                          headers: { 
-                            'Content-Type': 'application/json',
-                            'x-api-key': apiKey
+                          headers: {
+                            ...getAuthHeaders(),
+                            'Content-Type': 'application/json'
                           },
                           body: JSON.stringify({
                             rsi_period: algoSettings.rsiPeriod,
@@ -1170,183 +1182,30 @@ export default function App() {
                     />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-8 space-y-6">
                   <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-black text-zinc-500 uppercase tracking-widest">Binance Spot</span>
-                      <span className={cn("w-2 h-2 rounded-full", exchangeKeys.binance_api_key ? "bg-emerald-500 animate-pulse" : "bg-zinc-700")}></span>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">API Key</label>
-                        <input 
-                          type="text"
-                          value={exchangeKeys.binance_api_key}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, binance_api_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                          placeholder="Binance API Key"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Secret Key</label>
-                        <input 
-                          type="password"
-                          value={exchangeKeys.binance_secret_key}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, binance_secret_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                          placeholder="Binance Secret Key"
-                        />
-                      </div>
-                    </div>
+                    <h4 className="text-sm uppercase tracking-widest text-zinc-500 font-black mb-3">Dashboard authentication only</h4>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      Use your backend <code className="font-mono text-emerald-300">X-API-Key</code> to authenticate the dashboard. This is the only key required for trading control and sync.
+                    </p>
                   </div>
 
-                  <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-black text-zinc-500 uppercase tracking-widest">Bitget Spot</span>
-                      <span className={cn("w-2 h-2 rounded-full", exchangeKeys.bitget_api_key ? "bg-emerald-500 animate-pulse" : "bg-zinc-700")}></span>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">API Key</label>
-                        <input 
-                          type="text"
-                          value={exchangeKeys.bitget_api_key}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_api_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                          placeholder="Bitget API Key"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Secret Key</label>
-                        <input 
-                          type="password"
-                          value={exchangeKeys.bitget_secret_key}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_secret_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                          placeholder="Bitget Secret Key"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Passphrase</label>
-                        <input 
-                          type="password"
-                          value={exchangeKeys.bitget_passphrase}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_passphrase: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                          placeholder="Bitget Passphrase"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-8 flex justify-end">
-                  <button 
-                    onClick={async () => {
-                      try {
-                        const res = await fetch(`${BASE_URL}/api/bot/settings`, {
-                          method: 'POST',
-                          headers: { 
-                            'Content-Type': 'application/json',
-                            'x-api-key': apiKey
-                          },
-                          body: JSON.stringify(exchangeKeys)
-                        });
-                        if (res.ok) {
-                          addNotification('success', 'Exchange credentials encrypted and synchronized.');
-                        } else {
-                          throw new Error('Sync failed');
-                        }
-                      } catch (err) {
-                        addNotification('error', 'Credential Sync Failure: Verify Internal API Key.');
-                      }
-                    }}
-                    className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-[0.2em] transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
-                  >
-                    SAVE EXCHANGE CONFIG
-                  </button>
-                </div>
-             </div>
-
-             {/* Telegram & Security */}
-             <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                    <h3 className="text-xl font-bold flex items-center gap-3">
-                      <Bell className="text-emerald-500" /> Telegram Alerts
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Bot Token</label>
-                        <input 
-                          type="password"
-                          value={exchangeKeys.telegram_bot_token}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_bot_token: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-zinc-500 uppercase">Chat ID</label>
-                        <input 
-                          type="text"
-                          value={exchangeKeys.telegram_chat_id}
-                          onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_chat_id: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
-                        />
-                      </div>
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        try {
-                          const res = await fetch(`${BASE_URL}/api/bot/settings`, {
-                            method: 'POST',
-                            headers: { 
-                              'Content-Type': 'application/json',
-                              'x-api-key': apiKey
-                            },
-                            body: JSON.stringify({
-                              telegram_bot_token: exchangeKeys.telegram_bot_token,
-                              telegram_chat_id: exchangeKeys.telegram_chat_id
-                            })
-                          });
-                          if (res.ok) {
-                            addNotification('success', 'Telegram push protocol updated.');
-                          } else {
-                            throw new Error('Sync failed');
-                          }
-                        } catch (err) {
-                          addNotification('error', 'Credential Sync Failure: Verify Internal API Key.');
-                        }
+                  <div className="grid gap-4">
+                    <button
+                      onClick={() => {
+                        localStorage.setItem('aegis_api_key', apiKey.trim());
+                        addNotification('success', 'Dashboard key saved locally.');
                       }}
-                      className="w-full py-3 bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all"
+                      className="w-full px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs uppercase tracking-[0.2em] transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
                     >
-                      SAVE NOTIFICATION ASSETS
+                      SAVE DASHBOARD KEY
                     </button>
-                  </div>
-
-                  <div className="space-y-6">
-
-                    <h3 className="text-xl font-bold flex items-center gap-3">
-                      <Globe className="text-emerald-500" /> Whitelisting
-                    </h3>
-                    <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
-                      <p className="text-[10px] text-zinc-500 uppercase font-bold mb-2">Static Server IP Address</p>
-                      <div className="flex items-center justify-between">
-                        <code className="text-emerald-400 font-mono font-bold text-sm tracking-widest">{serverIp || '0.0.0.0'}</code>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(serverIp);
-                            addNotification('info', 'IP address copied to clipboard.');
-                          }}
-                          className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md hover:bg-emerald-500/30 transition-colors"
-                        >
-                          COPY IP
-                        </button>
-                      </div>
-                      <p className="text-[9px] text-zinc-600 leading-relaxed mt-3 uppercase tracking-tighter italic">
-                        Enable "IP Whitelisting" on Binance/Bitget using this address for maximum security.
-                      </p>
-                    </div>
+                    <button
+                      onClick={syncAppData}
+                      className="w-full px-8 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 rounded-xl font-bold text-xs uppercase tracking-[0.2em] transition-all active:scale-95"
+                    >
+                      REFRESH DASHBOARD
+                    </button>
                   </div>
                 </div>
              </div>
