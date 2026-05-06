@@ -96,7 +96,7 @@ db.exec(`
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_paper_balance', '1000');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('initial_real_balance', '0');
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('session_start', datetime('now') || 'Z');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('session_start', '');
   INSERT OR IGNORE INTO strategy_config (strategy_id) VALUES ('default');
   CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode);
   CREATE INDEX IF NOT EXISTS idx_history_mode ON balance_history(mode);
@@ -284,7 +284,6 @@ async function startServer() {
       if (paper_balance !== undefined) {
         db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', ?)").run(paper_balance.toString());
         db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', ?)").run(paper_balance.toString());
-        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('session_start', ?)").run(new Date().toISOString());
       }
       
       if (binance_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
@@ -335,6 +334,12 @@ async function startServer() {
       const { action } = req.body;
       db.prepare('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)').run('running', action);
       
+      if (action === 'running') {
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('session_start', ?)").run(new Date().toISOString());
+      } else {
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('session_start', ?)").run('');
+      }
+
       // Manage the real Python process
       managePythonBot(action);
       

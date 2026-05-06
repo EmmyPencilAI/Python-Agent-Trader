@@ -195,12 +195,14 @@ export default function App() {
 
   // Live Mission Timer
   useEffect(() => {
-    if (!sessionStart) {
+    if (!sessionStart || !isBotRunning) {
       setMissionDuration('00:00:00');
       return;
     }
     
     const updateTimer = () => {
+      if (!sessionStart || !isBotRunning) return;
+      
       const startTimeStr = sessionStart.includes(' ') ? sessionStart.replace(' ', 'T') : sessionStart;
       const normalizedStart = startTimeStr.endsWith('Z') ? startTimeStr : startTimeStr + 'Z';
       const start = new Date(normalizedStart).getTime();
@@ -219,10 +221,10 @@ export default function App() {
       setMissionDuration(`${h}:${m}:${s}`);
     };
 
-    updateTimer(); // Run immediately
+    updateTimer(); 
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [sessionStart]);
+  }, [sessionStart, isBotRunning]);
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
   const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
@@ -416,6 +418,7 @@ export default function App() {
         setIsBotRunning(!isBotRunning);
         addNotification(isBotRunning ? 'info' : 'success', isBotRunning ? 'Autonomous engine offline.' : 'Aegis Core active. Scanning market...');
         // Immediate refresh after toggle
+        syncAppData();
         setTimeout(fetchTrades, 500);
       } else {
         throw new Error('Unauthorized');
@@ -689,7 +692,7 @@ export default function App() {
               <StatsCard
                 label="Session Uptime"
                 value={missionDuration}
-                change={sessionStart ? `Started: ${new Date(sessionStart).toLocaleTimeString()}` : "Initializing core..."}
+                change={isBotRunning ? (sessionStart ? `Started: ${new Date(sessionStart).toLocaleTimeString()}` : "Active") : "Awaiting activation..."}
                 trend="up"
                 icon={<Clock className="text-blue-500" />}
               />
