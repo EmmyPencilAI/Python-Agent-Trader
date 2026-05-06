@@ -432,6 +432,18 @@ export default function App() {
   }, [activeTab, isBotRunning]);
 
   const toggleBot = async () => {
+    if (!isBotRunning && tradingMode === 'real') {
+       // Check if we have at least some keys for the active exchange
+       const hasBinance = exchangeKeys.binance_api_key && exchangeKeys.binance_secret_key;
+       const hasBitget = exchangeKeys.bitget_api_key && exchangeKeys.bitget_secret_key;
+       
+       if ((activeExchange === 'binance' && !hasBinance) || (activeExchange === 'bitget' && !hasBitget)) {
+         if (!window.confirm("Exchange API keys are missing or incomplete. Real mode requires active credentials. Proceed anyway (Environment variables may be used)?")) {
+           return;
+         }
+       }
+    }
+
     const nextState = isBotRunning ? 'stopped' : 'running';
     try {
       const res = await fetch(`${BASE_URL}/api/bot/toggle`, {
@@ -664,21 +676,21 @@ export default function App() {
             <button 
               onClick={toggleBot}
               className={cn(
-                "w-full sm:w-auto group flex items-center justify-center gap-3 px-8 py-3 rounded-xl font-bold transition-all duration-300 active:scale-95",
+                "w-full sm:w-auto group flex items-center justify-center gap-3 px-10 py-4 rounded-2xl font-black transition-all duration-300 active:scale-95 shadow-2xl",
                 isBotRunning 
-                  ? "bg-white text-black hover:bg-white/90" 
-                  : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/20"
+                  ? "bg-rose-600 text-white hover:bg-rose-500 shadow-rose-900/40" 
+                  : "bg-emerald-500 text-black hover:bg-white shadow-emerald-500/30"
               )}
             >
               {isBotRunning ? (
                 <>
                   <Square className="w-5 h-5 fill-current" />
-                  HALT ENGINE
+                  HALT TRADING MISSION
                 </>
               ) : (
                 <>
                   <Play className="w-5 h-5 fill-current" />
-                  INITIATE 24/7 SCAN
+                  ACTIVATE SYSTEM
                 </>
               )}
             </button>
@@ -1295,7 +1307,7 @@ export default function App() {
              <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-bold flex items-center gap-3">
-                    <History className="text-emerald-500" /> Dashboard Auth & Sync
+                    <History className="text-emerald-500" /> Dashboard Auth & Config (Refer to .env.example)
                   </h3>
                   <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">v4.2.0-STABLE</div>
                 </div>

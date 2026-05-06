@@ -64,7 +64,7 @@ class TradingEngine:
             binance_key = get_val('binance_api_key', Config.BINANCE_API_KEY)
             binance_secret = get_val('binance_secret_key', Config.BINANCE_SECRET_KEY)
             bitget_key = get_val('bitget_api_key', Config.BITGET_API_KEY)
-            bitget_secret = get_val('bitget_secret_key', Config.BITGET_SECRET_KEY)
+            bitget_secret = get_val('bitget_secret_key', Config.BITGET_API_SECRET)
             bitget_pwd = get_val('bitget_passphrase', Config.BITGET_PASSPHRASE)
             
             # Store current keys to detect changes
@@ -82,7 +82,7 @@ class TradingEngine:
             binance_key = Config.BINANCE_API_KEY
             binance_secret = Config.BINANCE_SECRET_KEY
             bitget_key = Config.BITGET_API_KEY
-            bitget_secret = Config.BITGET_SECRET_KEY
+            bitget_secret = Config.BITGET_API_SECRET
             bitget_pwd = Config.BITGET_PASSPHRASE
 
         if exch_id == 'binance':

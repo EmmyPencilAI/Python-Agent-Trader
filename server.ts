@@ -121,7 +121,7 @@ db.exec(`
     balance REAL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'running');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'stopped');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('mode', 'paper');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'bitget');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
@@ -567,8 +567,13 @@ async function startServer() {
     });
   }
 
-  // Start Python bot on server boot to ensure balance sync and 24/7 readiness
-  managePythonBot('running');
+  // Respect the persisted state on reboot
+  const botState = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
+  if (botState?.value === 'running') {
+    managePythonBot('running');
+  } else {
+    console.log('[AEGIS] Bot is currently STOPPED. Waiting for user to start...');
+  }
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
