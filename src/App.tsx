@@ -46,6 +46,10 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
+// API Configuration
+const API_KEY = import.meta.env.VITE_API_KEY || 'Cybunk2.0X';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 // Mock data for initial load
 const PERFORMANCE_DATA = [
   { time: '00:00', balance: 1000 },
@@ -272,257 +276,117 @@ export default function App() {
     }, 5000);
   };
 
-  const fetchTrades = async () => {
+  // Fetch data from backend API with authentication
+  const fetchStatus = async () => {
     try {
-      const res = await fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTrades(data || []);
-      }
+      const res = await fetch(`${API_BASE_URL}/status`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+      if (!res.ok) throw new Error(`Status error: ${res.status}`);
+      return await res.json();
     } catch (err) {
-      console.error('Trade poll error', err);
+      console.error('Status fetch error', err);
+      return null;
     }
   };
 
-  const fetchPerformance = async () => {
+  const fetchTrades = async () => {
     try {
-      const res = await fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPerformance(data);
-      }
+      const res = await fetch(`${API_BASE_URL}/trades?limit=50`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+      if (!res.ok) throw new Error(`Trades error: ${res.status}`);
+      const data = await res.json();
+      return data.trades || [];
     } catch (err) {
-      console.error('Perf poll error', err);
+      console.error('Trades fetch error', err);
+      return [];
+    }
+  };
+
+  const toggleBot = async (action: 'running' | 'stopped') => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bot/toggle`, {
+        method: 'POST',
+        headers: { 
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action })
+      });
+      if (!res.ok) throw new Error(`Toggle error: ${res.status}`);
+      const result = await res.json();
+      setIsBotRunning(action === 'running');
+      addNotification('success', `Bot ${action === 'running' ? 'started' : 'stopped'}`);
+      return result;
+    } catch (err) {
+      console.error('Toggle error', err);
+      addNotification('error', 'Failed to toggle bot');
+      return null;
+    }
+  };
+
+  const updateSettings = async (settings: Partial<{mode: string, exchange: string, paper_balance: number}>) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bot/settings`, {
+        method: 'POST',
+        headers: { 
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(settings)
+      });
+      if (!res.ok) throw new Error(`Settings error: ${res.status}`);
+      addNotification('success', 'Settings updated');
+      return await res.json();
+    } catch (err) {
+      console.error('Settings update error', err);
+      addNotification('error', 'Failed to update settings');
+      return null;
     }
   };
 
   const syncAppData = async () => {
     try {
-      const [statusRes, tradesRes, pricesRes, perfRes] = await Promise.all([
-        fetch(`${BASE_URL}/api/status`).catch(() => null),
-        fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`).catch(() => null),
-        fetch(`${BASE_URL}/api/market/prices`).catch(() => null),
-        fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`).catch(() => null)
-      ]);
-      
-      const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
-      const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
-      const perfData = perfRes && perfRes.ok ? await perfRes.json().catch(() => ({ total_trades: 0 })) : { total_trades: 0 };
-      let pricesData: Record<string, number> = {};
-      
-      if (perfData) {
-        setPerformance(perfData);
-      }
-      
-      if (pricesRes && pricesRes.ok) {
-        try {
-          const pArr = await pricesRes.json();
-          if (Array.isArray(pArr)) {
-            pArr.forEach((p: any) => {
-              if (p && p.symbol && p.price) {
-                pricesData[p.symbol] = parseFloat(p.price);
-              }
-            });
-          }
-        } catch (e) {
-          console.error("Price parse error", e);
-        }
-      }
+      const statusData = await fetchStatus();
+      const tradesData = await fetchTrades();
 
       if (statusData) {
         setIsBotRunning(statusData.status === 'running');
         setTradingMode(statusData.mode || 'paper');
-        setActiveExchange(statusData.exchange || 'binance');
+        setActiveExchange(statusData.exchange || 'bitget');
         setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
         setBalance(parseFloat(String(statusData.real_balance || '0')));
         setStatus(statusData);
-        
-        const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
-        const currentModeInit = statusData.mode === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance;
-        
-        setBalance(parseFloat(String(currentModeBal || '0')));
-        setInitialBalance(parseFloat(String(currentModeInit || '0')));
-        setSessionStart(statusData.session_start || null);
-        
-        // Sync existing keys from server (non-secret parts)
-        setExchangeKeys(prev => ({
-          ...prev,
-          binance_api_key: statusData.binance_api_key || '',
-          binance_secret_key: statusData.binance_secret_key || '',
-          bitget_api_key: statusData.bitget_api_key || '',
-          bitget_secret_key: statusData.bitget_secret_key || '',
-          bitget_passphrase: statusData.bitget_passphrase || '',
-          telegram_bot_token: statusData.telegram_bot_token || '',
-          telegram_chat_id: statusData.telegram_chat_id || ''
-        }));
-
-        // Fetch history
-        const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`).catch(() => null);
-        if (historyRes && historyRes.ok) {
-          const historyData = await historyRes.json().catch(() => ([]));
-          setHistory(Array.isArray(historyData) ? historyData : []);
-        }
       }
 
-      setTrades(Array.isArray(tradesData) ? tradesData : []);
-      if (Object.keys(pricesData).length > 0) {
-        setPrices(prev => ({ ...prev, ...pricesData }));
-      }
-
-      const ipRes = await fetch(`${BASE_URL}/api/server-ip`).catch(() => null);
-      if (ipRes && ipRes.ok) {
-         const ipData = await ipRes.json();
-         setServerIp(ipData.ip);
-      }
+      setTrades(tradesData);
     } catch (err) {
-      console.error("Fetch error", err);
+      console.error("Sync error", err);
     } finally {
       setIsInitialLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchTrades();
-    fetchPerformance();
-  }, [tradeFilter]);
 
   // Initial and Periodic Fetch
   useEffect(() => {
     syncAppData();
 
     // Data Polling (every 5 seconds)
-    const interval = setInterval(() => {
-      if (activeTab === 'dashboard') {
-        fetchTrades();
-      }
-    }, 5000);
-
-    // WebSocket connection
-    let socket: WebSocket | null = null;
-    try {
-      socket = new WebSocket(WS_URL);
-      socket.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'PRICE_UPDATE') {
-            setPrices(prev => ({ ...prev, ...msg.data }));
-          }
-        } catch (err) {
-          console.error('WebSocket parse error', err);
-        }
-      };
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    } catch (e) {
-      console.error("WS connect error", e);
-    }
+    const interval = setInterval(syncAppData, 5000);
 
     return () => {
-      if (socket) socket.close();
       clearInterval(interval);
     };
   }, []); // Only run once on mount
 
-  // Watch for tab changes to dashboard or engine start to refresh
-  useEffect(() => {
-    if (activeTab === 'dashboard' || isBotRunning) {
-      fetchTrades();
-    }
-  }, [activeTab, isBotRunning]);
-
-  const toggleBot = async () => {
-    if (!isBotRunning && tradingMode === 'real') {
-       // Check if we have at least some keys for the active exchange
-       const hasBinance = exchangeKeys.binance_api_key && exchangeKeys.binance_secret_key;
-       const hasBitget = exchangeKeys.bitget_api_key && exchangeKeys.bitget_secret_key;
-       
-       if ((activeExchange === 'binance' && !hasBinance) || (activeExchange === 'bitget' && !hasBitget)) {
-         if (!window.confirm("Exchange API keys are missing or incomplete. Real mode requires active credentials. Proceed anyway (Environment variables may be used)?")) {
-           return;
-         }
-       }
-    }
-
+  const handleToggleBot = async () => {
     const nextState = isBotRunning ? 'stopped' : 'running';
-    try {
-      const res = await fetch(`${BASE_URL}/api/bot/toggle`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey
-        },
-        body: JSON.stringify({ action: nextState })
-      });
-      if (res.ok) {
-        setIsBotRunning(!isBotRunning);
-        addNotification(isBotRunning ? 'info' : 'success', isBotRunning ? 'Autonomous engine offline.' : 'Aegis Core active. Scanning market...');
-        // Immediate refresh after toggle
-        syncAppData();
-        setTimeout(fetchTrades, 500);
-      } else {
-        throw new Error('Unauthorized');
-      }
-    } catch (err) {
-      addNotification('error', 'Execution Error: Dashboard cannot reach trading engine. Check API Secret Key.');
-    }
+    await toggleBot(nextState as 'running' | 'stopped');
   };
 
-  const updateSetting = async (field: 'mode' | 'exchange' | 'paper_balance', value: any) => {
-    try {
-      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey
-        },
-        body: JSON.stringify({ [field]: value })
-      });
-      if (res.ok) {
-        if (field === 'mode') {
-          setTradingMode(value);
-          // Auto refresh data for new mode
-          const statusRes = await fetch(`${BASE_URL}/api/status`);
-          const statusData = await statusRes.json();
-          setBalance(value === 'paper' ? statusData.paper_balance : statusData.real_balance);
-          setInitialBalance(value === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
-          const histRes = await fetch(`${BASE_URL}/api/history?mode=${value}`);
-          const histData = await histRes.json();
-          setHistory(histData);
-        }
-        if (field === 'exchange') setActiveExchange(value);
-        if (field === 'paper_balance') {
-          setPaperBalance(value);
-          setBalance(value);
-          setInitialBalance(value);
-        }
-      }
-    } catch (err) {
-      console.error('Update failed', err);
-    }
-  };
-
-  const withdrawFunds = async () => {
-    if (!window.confirm(`Are you sure you want to withdraw all ${tradingMode} funds? This will reset your balance to zero.`)) return;
-    try {
-      const res = await fetch(`${BASE_URL}/api/bot/withdraw`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey
-        },
-        body: JSON.stringify({ mode: tradingMode })
-      });
-      if (res.ok) {
-        setBalance(0);
-        setInitialBalance(0);
-        setHistory([]);
-        setTrades([]);
-        addNotification('success', `Withdrawal Complete. Assets moved to cold storage.`);
-      }
-    } catch (err) {
-      addNotification('error', 'Withdrawal Request Failed.');
-    }
+  const handleUpdateSettings = async (settings: {mode?: string, exchange?: string, paper_balance?: number}) => {
+    await updateSettings(settings);
   };
 
   const currentPnL = useMemo(() => {
@@ -658,23 +522,17 @@ export default function App() {
             {/* Mode Switcher */}
             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
               <button 
-                onClick={() => {
-                  updateSetting('mode', 'paper');
-                  addNotification('info', 'Switched to Virtual Paper Trading mode.');
-                }}
+                onClick={() => handleUpdateSettings({ mode: 'paper' })}
                 className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", tradingMode === 'paper' ? "bg-white text-black shadow-lg" : "text-zinc-500")}
               >PAPER</button>
               <button 
-                onClick={() => {
-                  updateSetting('mode', 'real');
-                  addNotification('success', 'Real Account Liquidity Live. Use with caution.');
-                }}
+                onClick={() => handleUpdateSettings({ mode: 'real' })}
                 className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", tradingMode === 'real' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" : "text-zinc-500")}
               >REAL</button>
             </div>
 
             <button 
-              onClick={toggleBot}
+              onClick={handleToggleBot}
               className={cn(
                 "w-full sm:w-auto group flex items-center justify-center gap-3 px-10 py-4 rounded-2xl font-black transition-all duration-300 active:scale-95 shadow-2xl",
                 isBotRunning 
@@ -759,7 +617,7 @@ export default function App() {
                         <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Cloud Sync Ready</span>
                       </div>
                       <button 
-                        onClick={() => updateSetting('mode', 'paper')}
+                        onClick={() => handleUpdateSettings({ mode: 'paper' })}
                         className={cn(
                           "px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
                           tradingMode === 'real' 
@@ -770,7 +628,7 @@ export default function App() {
                         VIRTUAL
                       </button>
                       <button 
-                        onClick={() => updateSetting('mode', 'real')}
+                        onClick={() => handleUpdateSettings({ mode: 'real' })}
                         className={cn(
                           "px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
                           tradingMode === 'real' 
@@ -835,22 +693,12 @@ export default function App() {
                      <button 
                       onClick={async () => {
                         try {
-                          const res = await fetch(`${BASE_URL}/api/bot/settings`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                            body: JSON.stringify({ 
-                              paper_balance: paperBalance,
-                              mode: tradingMode,
-                              ...exchangeKeys
-                            })
+                          await handleUpdateSettings({ 
+                            paper_balance: paperBalance,
+                            mode: tradingMode
                           });
-                          if (res.ok) {
-                            addNotification('success', `Aegis ${tradingMode === 'paper' ? 'Virtual' : 'Live'} Core synchronized.`);
-                            if (!isBotRunning) toggleBot();
-                            syncAppData();
-                          } else {
-                            addNotification('error', 'Protocol synchronization failed. Check Auth Key.');
-                          }
+                          addNotification('success', `Aegis ${tradingMode === 'paper' ? 'Virtual' : 'Live'} Core synchronized.`);
+                          syncAppData();
                         } catch (err) {
                           addNotification('error', 'Network connection interrupted.');
                         }
@@ -892,7 +740,7 @@ export default function App() {
               {['binance', 'bitget'].map((exch) => (
                 <button 
                   key={exch}
-                  onClick={() => updateSetting('exchange', exch)}
+                  onClick={() => handleUpdateSettings({ exchange: exch })}
                   className={cn(
                     "flex-shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all",
                     activeExchange === exch 
@@ -904,20 +752,13 @@ export default function App() {
                   <span className="font-bold uppercase tracking-widest text-sm">{exch}</span>
                 </button>
               ))}
-              <button 
-                onClick={withdrawFunds}
-                className="flex-shrink-0 ml-4 flex items-center gap-2 px-6 py-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-red-500 hover:bg-red-500/10 transition-all font-bold text-xs uppercase tracking-widest"
-              >
-                <Wallet className="w-4 h-4" />
-                WITHDRAW ALL
-              </button>
               {tradingMode === 'paper' && (
                 <div className="flex items-center gap-2 bg-white/5 px-4 rounded-2xl border border-white/10 ml-auto">
                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Set Paper:</span>
                    {[100, 500, 1000, 5000].map(amt => (
                      <button 
                       key={amt} 
-                      onClick={() => updateSetting('paper_balance', amt)}
+                      onClick={() => handleUpdateSettings({ paper_balance: amt })}
                       className={cn("px-2 py-1 rounded text-[10px] font-bold", paperBalance === amt ? "bg-emerald-600 text-white" : "bg-white/5 text-zinc-400")}
                      >
                        ${amt}
