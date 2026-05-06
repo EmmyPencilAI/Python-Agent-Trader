@@ -46,19 +46,26 @@ class TradingEngine:
         exch_id = self.active_exchange_id
         logger.info(f"Initializing exchange: {exch_id} in {self.trading_mode} mode")
         
-        # Try to load API keys from DB first (user configured via Dashboard)
+        # Priority: 1. DB (User configured via Dashboard) 2. Env Vars (Config)
         try:
-            binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
-            binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
-            bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
-            bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
-            bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
+            db_keys = {
+                'binance_api_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone(),
+                'binance_secret_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone(),
+                'bitget_api_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone(),
+                'bitget_secret_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone(),
+                'bitget_passphrase': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone(),
+            }
             
-            binance_key = binance_key[0] if binance_key else Config.BINANCE_API_KEY
-            binance_secret = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
-            bitget_key = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
-            bitget_secret = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
-            bitget_pwd = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
+            def get_val(key, default):
+                row = db_keys.get(key)
+                val = row[0] if row and row[0] else None
+                return val if val else default
+
+            binance_key = get_val('binance_api_key', Config.BINANCE_API_KEY)
+            binance_secret = get_val('binance_secret_key', Config.BINANCE_SECRET_KEY)
+            bitget_key = get_val('bitget_api_key', Config.BITGET_API_KEY)
+            bitget_secret = get_val('bitget_secret_key', Config.BITGET_SECRET_KEY)
+            bitget_pwd = get_val('bitget_passphrase', Config.BITGET_PASSPHRASE)
             
             # Store current keys to detect changes
             self.current_keys = {
@@ -71,7 +78,7 @@ class TradingEngine:
             }
 
         except Exception as e:
-            logger.error(f"Error loading keys from DB: {e}")
+            logger.error(f"Error loading keys: {e}")
             binance_key = Config.BINANCE_API_KEY
             binance_secret = Config.BINANCE_SECRET_KEY
             bitget_key = Config.BITGET_API_KEY
@@ -83,6 +90,7 @@ class TradingEngine:
                 'apiKey': binance_key,
                 'secret': binance_secret,
                 'enableRateLimit': True,
+                'options': {'defaultType': 'future'} # Default to futures for binance if available, or spot
             })
         elif exch_id == 'bitget':
             return ccxt.bitget({

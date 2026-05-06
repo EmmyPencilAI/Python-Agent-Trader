@@ -89,7 +89,7 @@ db.exec(`
     balance REAL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
-  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'stopped');
+  INSERT OR IGNORE INTO bot_state (key, value) VALUES ('running', 'running');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('mode', 'paper');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('exchange', 'bitget');
   INSERT OR IGNORE INTO bot_state (key, value) VALUES ('paper_balance', '1000');
@@ -246,13 +246,13 @@ async function startServer() {
         algo_settings: config,
         session_start: state.session_start || new Date().toISOString(),
         uptime: uptime,
-        binance_api_key: state.binance_api_key || '',
-        binance_secret_key: state.binance_secret_key || '',
-        bitget_api_key: state.bitget_api_key || '',
-        bitget_secret_key: state.bitget_secret_key || '',
-        bitget_passphrase: state.bitget_passphrase || '',
-        telegram_bot_token: state.telegram_bot_token || '',
-        telegram_chat_id: state.telegram_chat_id || ''
+        binance_api_key: state.binance_api_key || (process.env.BINANCE_API_KEY ? '******** (System Env)' : ''),
+        binance_secret_key: state.binance_secret_key || (process.env.BINANCE_SECRET_KEY ? '********' : ''),
+        bitget_api_key: state.bitget_api_key || (process.env.BITGET_API_KEY ? '******** (System Env)' : ''),
+        bitget_secret_key: state.bitget_secret_key || (process.env.BITGET_SECRET_KEY ? '********' : ''),
+        bitget_passphrase: state.bitget_passphrase || (process.env.BITGET_PASSPHRASE ? '********' : ''),
+        telegram_bot_token: state.telegram_bot_token || (process.env.TELEGRAM_BOT_TOKEN ? '********' : ''),
+        telegram_chat_id: state.telegram_chat_id || (process.env.TELEGRAM_CHAT_ID ? '********' : '')
       });
     } catch (err) {
       console.error('API Status Error:', err);
@@ -298,14 +298,14 @@ async function startServer() {
         db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', ?)").run(paper_balance.toString());
       }
       
-      if (binance_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
-      if (binance_secret_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_secret_key', ?)").run(binance_secret_key);
-      if (bitget_api_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_api_key', ?)").run(bitget_api_key);
-      if (bitget_secret_key !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_secret_key', ?)").run(bitget_secret_key);
-      if (bitget_passphrase !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_passphrase', ?)").run(bitget_passphrase);
+      if (binance_api_key !== undefined && !binance_api_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_api_key', ?)").run(binance_api_key);
+      if (binance_secret_key !== undefined && !binance_secret_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('binance_secret_key', ?)").run(binance_secret_key);
+      if (bitget_api_key !== undefined && !bitget_api_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_api_key', ?)").run(bitget_api_key);
+      if (bitget_secret_key !== undefined && !bitget_secret_key.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_secret_key', ?)").run(bitget_secret_key);
+      if (bitget_passphrase !== undefined && !bitget_passphrase.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_passphrase', ?)").run(bitget_passphrase);
       
-      if (telegram_bot_token !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_bot_token', ?)").run(telegram_bot_token);
-      if (telegram_chat_id !== undefined) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_chat_id', ?)").run(telegram_chat_id);
+      if (telegram_bot_token !== undefined && !telegram_bot_token.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_bot_token', ?)").run(telegram_bot_token);
+      if (telegram_chat_id !== undefined && !telegram_chat_id.includes('********')) db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_chat_id', ?)").run(telegram_chat_id);
 
       res.json({ success: true });
     } catch (err) {

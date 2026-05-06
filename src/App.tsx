@@ -816,6 +816,7 @@ export default function App() {
                           });
                           if (res.ok) {
                             addNotification('success', `Aegis ${tradingMode === 'paper' ? 'Virtual' : 'Live'} Core synchronized.`);
+                            if (!isBotRunning) toggleBot();
                             syncAppData();
                           } else {
                             addNotification('error', 'Protocol synchronization failed. Check Auth Key.');
@@ -865,11 +866,11 @@ export default function App() {
                   className={cn(
                     "flex-shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all",
                     activeExchange === exch 
-                      ? "bg-white/10 border-orange-500/50 text-white shadow-lg shadow-orange-500/10" 
+                      ? "bg-emerald-600/10 border-emerald-500/50 text-white shadow-lg shadow-emerald-500/10" 
                       : "bg-[#111] border-white/5 text-zinc-500 hover:border-white/10"
                   )}
                 >
-                  <div className={cn("w-2 h-2 rounded-full", activeExchange === exch ? "bg-orange-500 shadow-[0_0_8px_#f97316]" : "bg-zinc-700")} />
+                  <div className={cn("w-2 h-2 rounded-full", activeExchange === exch ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-zinc-700")} />
                   <span className="font-bold uppercase tracking-widest text-sm">{exch}</span>
                 </button>
               ))}
@@ -1293,7 +1294,7 @@ export default function App() {
                           type="text"
                           value={exchangeKeys.binance_api_key}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, binance_api_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                           placeholder="Binance API Key"
                         />
                       </div>
@@ -1303,7 +1304,7 @@ export default function App() {
                           type="password"
                           value={exchangeKeys.binance_secret_key}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, binance_secret_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                           placeholder="Binance Secret Key"
                         />
                       </div>
@@ -1322,7 +1323,7 @@ export default function App() {
                           type="text"
                           value={exchangeKeys.bitget_api_key}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_api_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                           placeholder="Bitget API Key"
                         />
                       </div>
@@ -1332,7 +1333,7 @@ export default function App() {
                           type="password"
                           value={exchangeKeys.bitget_secret_key}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_secret_key: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                           placeholder="Bitget Secret Key"
                         />
                       </div>
@@ -1342,7 +1343,7 @@ export default function App() {
                           type="password"
                           value={exchangeKeys.bitget_passphrase}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, bitget_passphrase: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                           placeholder="Bitget Passphrase"
                         />
                       </div>
@@ -1392,7 +1393,7 @@ export default function App() {
                           type="password"
                           value={exchangeKeys.telegram_bot_token}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_bot_token: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                         />
                       </div>
                       <div className="space-y-1">
@@ -1401,7 +1402,7 @@ export default function App() {
                           type="text"
                           value={exchangeKeys.telegram_chat_id}
                           onChange={(e) => setExchangeKeys(prev => ({...prev, telegram_chat_id: e.target.value}))}
-                          className="w-full bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono focus:border-orange-500/50 outline-none"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:border-emerald-500/50 outline-none transition-colors"
                         />
                       </div>
                     </div>
