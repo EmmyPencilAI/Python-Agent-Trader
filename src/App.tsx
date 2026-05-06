@@ -521,7 +521,7 @@ export default function App() {
           </div>
           <button 
             onClick={() => window.location.reload()} 
-            className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-colors"
+            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-colors"
           >
             Reset Aegis Core
           </button>
@@ -534,9 +534,9 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center gap-6">
         <div className="w-16 h-16 relative">
-          <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full" />
-          <div className="absolute inset-0 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-          <Zap className="absolute inset-0 m-auto w-6 h-6 text-orange-500" />
+          <div className="absolute inset-0 border-4 border-emerald-500/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <Zap className="absolute inset-0 m-auto w-6 h-6 text-emerald-500" />
         </div>
         <div className="text-center">
           <h2 className="text-xl font-bold tracking-tighter mb-1 uppercase">Initializing Aegis Protocol</h2>
@@ -887,7 +887,7 @@ export default function App() {
                      <button 
                       key={amt} 
                       onClick={() => updateSetting('paper_balance', amt)}
-                      className={cn("px-2 py-1 rounded text-[10px] font-bold", paperBalance === amt ? "bg-orange-600 text-white" : "bg-white/5 text-zinc-400")}
+                      className={cn("px-2 py-1 rounded text-[10px] font-bold", paperBalance === amt ? "bg-emerald-600 text-white" : "bg-white/5 text-zinc-400")}
                      >
                        ${amt}
                      </button>
@@ -901,8 +901,8 @@ export default function App() {
               <div className="lg:col-span-2 bg-[#111] border border-white/5 rounded-3xl p-6 overflow-hidden relative">
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-orange-600/10 rounded-lg">
-                      <BarChart3 className="w-5 h-5 text-orange-500" />
+                    <div className="p-2 bg-emerald-600/10 rounded-lg">
+                      <BarChart3 className="w-5 h-5 text-emerald-500" />
                     </div>
                     <div>
                       <h3 className="text-xl font-bold">BTC/USDT Live Terminal</h3>
@@ -911,7 +911,7 @@ export default function App() {
                   </div>
                   <div className="flex gap-2">
                     {['1M', '5M', '15M', '1H'].map(t => (
-                      <button key={t} className={cn("px-3 py-1 rounded-md text-[10px] font-black tracking-widest bg-white/5 hover:bg-white/10 transition-colors uppercase border border-white/5", t === '1H' ? "text-orange-500 border-orange-500/20" : "")}>
+                      <button key={t} className={cn("px-3 py-1 rounded-md text-[10px] font-black tracking-widest bg-white/5 hover:bg-white/10 transition-colors uppercase border border-white/5", t === '1H' ? "text-emerald-500 border-emerald-500/20" : "")}>
                         {t}
                       </button>
                     ))}
@@ -983,13 +983,13 @@ export default function App() {
               <div className="bg-[#111] border border-white/5 rounded-3xl p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-orange-500" />
+                    <Activity className="w-5 h-5 text-emerald-500" />
                     Market Stream
                   </h3>
                 </div>
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/10">
                   {Object.entries(prices).map(([symbol, price]) => (
-                    <div key={symbol} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-colors group">
+                    <div key={symbol} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-emerald-500/30 transition-colors group">
                       <div>
                         <div className="text-sm font-bold tracking-tight">{symbol}</div>
                         <div className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Spot Perpetual</div>
@@ -1014,7 +1014,7 @@ export default function App() {
                <div className="p-8 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="text-xl font-bold">Recent Trade Ledger</h3>
                   <div className="flex items-center gap-2">
-                    <button className="px-4 py-1.5 rounded-lg bg-orange-600/10 text-orange-500 text-xs font-bold border border-orange-500/20">ALL LOGS</button>
+                    <button className="px-4 py-1.5 rounded-lg bg-emerald-600/10 text-emerald-500 text-xs font-bold border border-emerald-500/20">ALL LOGS</button>
                     <button className="px-4 py-1.5 rounded-lg bg-white/5 text-zinc-400 text-xs font-bold border border-white/10 hover:bg-white/10 transition-colors">REAL ONLY</button>
                   </div>
                </div>
@@ -1049,7 +1049,7 @@ export default function App() {
                                {trade.pair}
                                <span className={cn(
                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase",
-                                 trade.mode === 'real' ? "bg-orange-500/10 text-orange-400" : "bg-zinc-800 text-zinc-500"
+                                 trade.mode === 'real' ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800 text-zinc-500"
                                )}>{trade.mode}</span>
                              </div>
                              <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{new Date(trade.timestamp).toLocaleString()}</div>
@@ -1081,7 +1081,7 @@ export default function App() {
                                   <div className="space-y-1">
                                     <div className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">Logic Strategy</div>
                                     <div className="text-sm font-bold text-white flex items-center gap-2">
-                                      <Zap className="w-3 h-3 text-orange-500" />
+                                      <Zap className="w-3 h-3 text-emerald-500" />
                                       NEURAL-EMA-MACD
                                     </div>
                                   </div>
@@ -1131,19 +1131,19 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
                 <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                  <Activity className="text-orange-500" /> Oscillator Config
+                  <Activity className="text-emerald-500" /> Oscillator Config
                 </h3>
                 <div className="space-y-6">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">RSI Period</label>
-                      <span className="text-xs font-mono text-orange-500">{algoSettings.rsiPeriod}</span>
+                      <span className="text-xs font-mono text-emerald-500">{algoSettings.rsiPeriod}</span>
                     </div>
                     <input 
                       type="range" min="2" max="50" 
                       value={algoSettings.rsiPeriod}
                       onChange={(e) => setAlgoSettings({...algoSettings, rsiPeriod: parseInt(e.target.value)})}
-                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-600"
                     />
                     <div className="flex justify-between text-[10px] text-zinc-600 font-bold uppercase">
                       <span>Fast</span>
@@ -1258,7 +1258,7 @@ export default function App() {
              <div className="bg-[#111] border border-white/5 rounded-3xl p-8">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl font-bold flex items-center gap-3">
-                    <History className="text-orange-500" /> Dashboard Auth & Sync
+                    <History className="text-emerald-500" /> Dashboard Auth & Sync
                   </h3>
                   <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">v4.2.0-STABLE</div>
                 </div>
@@ -1266,7 +1266,7 @@ export default function App() {
                 <div className="p-5 bg-white/5 border border-white/10 rounded-2xl mb-6">
                     <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 flex justify-between">
                       <span>Internal API Key (Protective Layer)</span>
-                      <span className="text-orange-500/50">Stored Locally</span>
+                      <span className="text-emerald-500/50">Stored Locally</span>
                     </label>
                     <input 
                       type="password" 

@@ -38,25 +38,18 @@ function managePythonBot(action: string) {
       pythonProcess.on('close', (code: number) => {
         console.log(`[AEGIS] Python bot process closed with code ${code}`);
         pythonProcess = null;
-        // Auto-restart if it's supposed to be running
-        const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
-        if (state && state.value === 'running') {
-          console.log('[AEGIS] Restarting Python bot...');
-          setTimeout(() => managePythonBot('running'), 5000);
-        } else {
-          botStartTime = null;
-        }
+        // Auto-restart always
+        console.log('[AEGIS] Restarting Python bot...');
+        setTimeout(() => managePythonBot('running'), 5000);
       });
     } catch (err: any) {
       console.error('[AEGIS] Error spawning Python process:', err.message);
     }
-  } else {
+  } else if (action === 'restart') {
     if (pythonProcess) {
-      console.log('[AEGIS] Stopping Python Trading Engine...');
-      pythonProcess.kill();
-      pythonProcess = null;
-      botStartTime = null;
+       pythonProcess.kill();
     }
+    setTimeout(() => managePythonBot('running'), 1000);
   }
 }
 
@@ -140,11 +133,9 @@ function simulateTrade(db: any) {
 
   const mode = state.mode || 'paper';
   
-  // Real mode logic: If no API keys, we don't simulate trades
-  if (mode === 'real') {
-    const hasKeys = process.env.BINANCE_API_KEY || process.env.BITGET_API_KEY;
-    if (!hasKeys) return;
-  }
+  // Real account logic: We do NOT simulate trades in real mode.
+  // The Python engine handles real execution and provides authentic telemetry.
+  if (mode === 'real') return;
 
   getLiveBTCPrice().then(price => {
     let balance = 0;
@@ -525,18 +516,11 @@ async function startServer() {
     });
   }
 
+  // Start Python bot on server boot to ensure balance sync and 24/7 readiness
+  managePythonBot('running');
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    
-    // Resume bot if it was running before server restart
-    const state = db.prepare("SELECT value FROM bot_state WHERE key = 'running'").get() as any;
-    if (state && state.value === 'running') {
-      console.log('[AEGIS] Cold Boot Recovery: Resuming autonomous trading operations.');
-      managePythonBot('running');
-      // If we are resuming, the botStartTime is set in managePythonBot, 
-      // but if we want to be precise about cumulative uptime we'd need another field.
-      // For now, setting it to now is standard for a "Session" restart.
-    }
   });
 }
 

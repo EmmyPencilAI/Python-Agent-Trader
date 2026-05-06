@@ -90,6 +90,7 @@ class TradingEngine:
                 'secret': bitget_secret,
                 'password': bitget_pwd,
                 'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
             })
         else:
             raise ValueError(f"Unsupported exchange: {exch_id}")
@@ -101,15 +102,23 @@ class TradingEngine:
         else:
             try:
                 bal_data = self.exchange.fetch_balance()
-                # Use total balance or free balance? Dashboard usually prefers total equity.
-                # Standard CCXT balance format has 'total' and 'free'
-                balance = float(bal_data.get('USDT', {}).get('total', bal_data.get('USDT', {}).get('free', 0.0)))
+                # Debug log the keys to troubleshoot Bitget structure
+                logger.debug(f"Balance keys: {list(bal_data.keys())}")
+                
+                # CCXT usually normalizes to 'USDT', but we check just in case
+                usdt_data = bal_data.get('USDT') or bal_data.get('usdt') or {}
+                
+                # Check total, free, or just the value if it's a simple float (though CCXT uses a dict)
+                balance = float(usdt_data.get('total', usdt_data.get('free', 0.0)))
+                
+                logger.info(f"Fetched real {self.exchange.id} balance: {balance} USDT")
+                
                 # Sync real balance back to DB for Dashboard visibility
                 self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(balance)))
                 # Set initial if it is 0
                 cursor = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'")
                 row = cursor.fetchone()
-                if not row or row[0] == '0':
+                if not row or row[0] == '0' or row[0] == '0.0':
                     self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(balance)))
                 self.db.conn.commit()
             except Exception as e:
@@ -300,19 +309,23 @@ class TradingEngine:
                     time.sleep(10)
                     continue
 
+            # Always sync balance to DB every loop if in real mode 
+            # (Dashboard expects this)
+            if self.trading_mode == "real":
+                current_bal = self.get_usdt_balance()
+                
+                # Check thresholds
+                if time.time() - last_threshold_check > Config.SCAN_INTERVAL:
+                    self.check_balance_thresholds(current_bal)
+                    last_threshold_check = time.time()
+
             if self.is_running:
                 # Periodic balance history recording (every ~10 scans)
                 if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
-                    current_bal = self.get_usdt_balance()
-                    self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, current_bal))
+                    bal_to_record = self.get_usdt_balance()
+                    self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
                     self.db.conn.commit()
                     last_balance_record = time.time()
-                
-                # Check thresholds every scan
-                if self.trading_mode == "real" and time.time() - last_threshold_check > Config.SCAN_INTERVAL:
-                    current_bal = self.get_usdt_balance()
-                    self.check_balance_thresholds(current_bal)
-                    last_threshold_check = time.time()
 
                 for symbol in Config.SYMBOLS:
                     try:
