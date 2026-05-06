@@ -195,16 +195,32 @@ export default function App() {
 
   // Live Mission Timer
   useEffect(() => {
-    if (!sessionStart) return;
-    const interval = setInterval(() => {
-      const start = new Date(sessionStart).getTime();
+    if (!sessionStart) {
+      setMissionDuration('00:00:00');
+      return;
+    }
+    
+    const updateTimer = () => {
+      const startTimeStr = sessionStart.includes(' ') ? sessionStart.replace(' ', 'T') : sessionStart;
+      const normalizedStart = startTimeStr.endsWith('Z') ? startTimeStr : startTimeStr + 'Z';
+      const start = new Date(normalizedStart).getTime();
       const now = new Date().getTime();
+      
       const diff = Math.max(0, now - start);
+      
+      if (isNaN(diff)) {
+        setMissionDuration('00:00:00');
+        return;
+      }
+
       const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
       const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
       const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
       setMissionDuration(`${h}:${m}:${s}`);
-    }, 1000);
+    };
+
+    updateTimer(); // Run immediately
+    const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [sessionStart]);
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
