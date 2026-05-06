@@ -482,7 +482,8 @@ async function startServer() {
   // K-Line dataProxy for Charts
   app.get('/api/market/klines', async (req, res) => {
     try {
-      const symbol = req.query.symbol || 'BTCUSDT';
+      const rawSymbol = (req.query.symbol as string) || 'BTCUSDT';
+      const symbol = rawSymbol.replace('/', '').toUpperCase();
       const interval = req.query.interval || '1h';
       const response = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=100`);
       const klines = response.data.map((k: any) => ({

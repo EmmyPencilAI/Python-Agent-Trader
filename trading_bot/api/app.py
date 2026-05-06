@@ -29,6 +29,9 @@ async def get_status():
         "mode": state.get('mode', 'paper'),
         "exchange": state.get('exchange', 'binance'),
         "paper_balance": float(state.get('paper_balance', 1000)),
+        "initial_paper_balance": float(state.get('initial_paper_balance', 1000)),
+        "real_balance": float(state.get('real_balance', 0)),
+        "initial_real_balance": float(state.get('initial_real_balance', 0)),
         "active_strategy": "Scalping"
     }
 

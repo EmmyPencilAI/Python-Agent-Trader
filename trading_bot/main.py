@@ -46,7 +46,6 @@ class TradingEngine:
         exch_id = self.active_exchange_id
         logger.info(f"Initializing exchange: {exch_id} in {self.trading_mode} mode")
         
-        # Priority: 1. DB (User configured via Dashboard) 2. Env Vars (Config)
         try:
             db_keys = {
                 'binance_api_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone(),
@@ -67,7 +66,6 @@ class TradingEngine:
             bitget_secret = get_val('bitget_secret_key', Config.BITGET_API_SECRET)
             bitget_pwd = get_val('bitget_passphrase', Config.BITGET_PASSPHRASE)
             
-            # Store current keys to detect changes
             self.current_keys = {
                 'binance_key': binance_key,
                 'binance_secret': binance_secret,
@@ -76,6 +74,9 @@ class TradingEngine:
                 'bitget_pwd': bitget_pwd,
                 'exch_id': exch_id
             }
+
+            if not bitget_key and exch_id == 'bitget':
+                 logger.warning("Bitget API Key is missing! Real trading will fail.")
 
         except Exception as e:
             logger.error(f"Error loading keys: {e}")
@@ -90,7 +91,7 @@ class TradingEngine:
                 'apiKey': binance_key,
                 'secret': binance_secret,
                 'enableRateLimit': True,
-                'options': {'defaultType': 'spot'} # Default to spot as requested for simple balance
+                'options': {'defaultType': 'spot'}
             })
         elif exch_id == 'bitget':
             return ccxt.bitget({
@@ -98,14 +99,16 @@ class TradingEngine:
                 'secret': bitget_secret,
                 'password': bitget_pwd,
                 'enableRateLimit': True,
-                'options': {'defaultType': 'spot'}
+                'options': {
+                    'defaultType': 'spot',
+                    'adjustForTimeDifference': True
+                }
             })
         else:
             raise ValueError(f"Unsupported exchange: {exch_id}")
 
     def get_usdt_balance(self):
-        # Cache balance for the duration of one scan loop to prevent rate limiting
-        if hasattr(self, '_last_bal_time') and time.time() - self._last_bal_time < 5:
+        if hasattr(self, '_last_bal_time') and time.time() - self._last_bal_time < 10:
              return self._last_cached_bal
 
         balance = 0.0
@@ -113,46 +116,130 @@ class TradingEngine:
             balance = self.paper_balance
         else:
             try:
-                # Optimized: Only fetch if we really need it or every 30s for the dashboard
-                bal_data = self.exchange.fetch_balance()
-                usdt_data = bal_data.get('USDT') or bal_data.get('usdt') or {}
+                # Try Spot balance first, then Unified/Trade
+                bal_data = {}
+                found_usdt = False
                 
-                total_bal = float(usdt_data.get('total', 0.0))
-                free_bal = float(usdt_data.get('free', 0.0))
+                for acct_type in ['spot', 'unified', 'trade', 'contract']:
+                    try:
+                        logger.info(f"Attempting balance fetch for type: {acct_type}")
+                        bt_data = self.exchange.fetch_balance({'type': acct_type})
+                        
+                        # Check if USDT is in this response
+                        temp_usdt = {}
+                        if 'USDT' in bt_data and float(bt_data['USDT'].get('total', 0)) > 0:
+                            temp_usdt = bt_data['USDT']
+                        elif 'usdt' in bt_data and float(bt_data['usdt'].get('total', 0)) > 0:
+                            temp_usdt = bt_data['usdt']
+                            
+                        if temp_usdt:
+                            bal_data = bt_data
+                            found_usdt = True
+                            logger.info(f"Found non-zero USDT in {acct_type} account.")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Balance fetch for {acct_type} failed: {e}")
+                        continue
+                
+                if not found_usdt:
+                    # Fallback to standard fetch if loops failed to find anything
+                    try:
+                        bal_data = self.exchange.fetch_balance()
+                    except:
+                        pass
+
+                # Extract USDT data from bal_data
+                
+                # Priority 1: Direct currency keys (Standard CCXT)
+                if 'USDT' in bal_data:
+                    usdt_data = bal_data['USDT']
+                elif 'usdt' in bal_data:
+                    usdt_data = bal_data['usdt']
+                
+                # Priority 2: info block (Raw exchange response)
+                elif 'info' in bal_data and isinstance(bal_data['info'], list):
+                    # Some exchanges (like Bitget Margin/Futures) return info as a list
+                    for asset in bal_data['info']:
+                        if asset.get('coinName') == 'USDT' or asset.get('currency') == 'USDT' or asset.get('coin') == 'USDT':
+                            usdt_data = {
+                                'total': asset.get('balance') or asset.get('total') or asset.get('available'),
+                                'free': asset.get('available') or asset.get('free') or asset.get('equity')
+                            }
+                            break
+                elif 'info' in bal_data and isinstance(bal_data['info'], dict):
+                    # Bitget Unified might have 'assets' or 'subAccountRow'
+                    info = bal_data['info']
+                    if 'assets' in info:
+                         for asset in info['assets']:
+                             if asset.get('coinName') == 'USDT':
+                                 usdt_data = {'total': asset.get('total'), 'free': asset.get('available')}
+                                 break
+                
+                # Priority 3: total/free aggregate maps
+                if not usdt_data and 'total' in bal_data and 'USDT' in bal_data['total']:
+                    usdt_data = {
+                        'total': bal_data['total']['USDT'],
+                        'free': bal_data['free']['USDT'] if 'free' in bal_data else 0
+                    }
+                
+                # Final check: is there ANY USDT?
+                if not usdt_data:
+                    # Log keys to debug
+                    logger.warning(f"USDT not found in balance keys: {list(bal_data.keys())[:10]}")
+                    # Try to find anything matching USDT in info
+                    total_bal = 0.0
+                    free_bal = 0.0
+                else:
+                    total_bal = float(usdt_data.get('total') or usdt_data.get('free') or 0.0)
+                    free_bal = float(usdt_data.get('free') or usdt_data.get('total') or 0.0)
+                
+                logger.info(f"Fetched Real Balance: Total={total_bal}, Free={free_bal}")
                 balance = free_bal
                 
-                # Silent update to DB (Dashboard visibility)
+                # Sync to DB
                 self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("real_balance", str(total_bal)))
-                cursor = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'")
-                row = cursor.fetchone()
-                if not row or row[0] == '0' or row[0] == '0.0':
+                
+                # Update initial if first time or zero
+                curr_init = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'initial_real_balance'").fetchone()
+                if not curr_init or float(curr_init[0]) == 0:
                     self.db.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", ("initial_real_balance", str(total_bal)))
+                
                 self.db.conn.commit()
                 
                 self._last_cached_bal = balance
                 self._last_bal_time = time.time()
                 
-                if self.trading_mode == "real" and balance > 0:
-                    logger.debug(f"Sync: Balance {total_bal} USDT")
             except Exception as e:
-                logger.error(f"Balance Refresh Failed: {e}")
-                balance = self._last_cached_bal if hasattr(self, '_last_cached_bal') else 0.0
+                logger.error(f"Balance Fetch Critical Failure: {e}")
+                # Don't overwrite with 0 if we have a cache
+                balance = getattr(self, '_last_cached_bal', 0.0)
         return balance
 
     def calculate_quantity(self, symbol, price):
         balance = self.get_usdt_balance()
         if balance <= 0:
-            logger.warning(f"No {self.trading_mode} balance available for quantity calculation.")
+            logger.warning(f"No {self.trading_mode} balance available.")
             return 0.0
             
-        # Risk Management: 2% per trade as requested for micro-compounding
+        # Risk Management: 2% per trade
         alloc_usdt = balance * (Config.CAPITAL_PER_TRADE_PCT / 100)
         
-        # Enforce reasonable minimum for execution if needed, 
-        # but allow user's requested micro-sizing if exchange permits
-        min_trade_size = 0.1 # Very low limit to allow micro-testing
-        if alloc_usdt < min_trade_size:
-            logger.warning(f"Allocation {alloc_usdt:.4f} USDT is too small.")
+        # BITGET MINIMUM ENFORCEMENT
+        # Bitget Spot usually requires at least 1 USDT or 5 USDT.
+        # If user has only $9, 2% ($0.18) will ALWAYS fail.
+        # We will use either 2% or 5 USDT (whichever is larger), 
+        # but limited by total balance.
+        min_exec_usdt = 1.0 # Minimum Bitget trade is usually $1 or $5
+        if alloc_usdt < min_exec_usdt:
+            logger.info(f"Allocation {alloc_usdt:.2f} is below minimum. Using {min_exec_usdt} USDT for {symbol}")
+            alloc_usdt = min_exec_usdt
+            
+        if alloc_usdt > balance:
+            logger.warning(f"Required minimum {alloc_usdt} exceeds balance {balance}. Trading all available.")
+            alloc_usdt = balance * 0.95 # Leave a tiny bit for fees
+            
+        if alloc_usdt < 0.5: # Absolute floor
+            logger.error("Balance too low for ANY exchange execution.")
             return 0.0
 
         quantity = alloc_usdt / price

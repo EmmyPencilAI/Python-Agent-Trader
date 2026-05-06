@@ -18,8 +18,9 @@ class Config:
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+    DATABASE_NAME = "database.sqlite"
     
-    SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+    SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "ADA/USDT"]
     SCAN_INTERVAL = 60  # 60 seconds for production scalping
     
     CAPITAL_PER_TRADE_PCT = 2.0 # 2% allocation for micro-compounding
