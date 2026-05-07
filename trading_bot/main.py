@@ -131,9 +131,9 @@ class TradingEngine:
                 found_usdt = False
                 
                 # Bitget specific: Unified accounts often need 'unified' type
-                search_types = ['spot', 'unified', 'trade', 'contract', 'account', 'swap']
+                search_types = ['spot', 'unified', 'trade', 'funding', 'contract', 'account', 'swap']
                 if self.exchange.id == 'bitget':
-                     search_types = ['unified', 'trade', 'spot', 'account', 'swap']
+                     search_types = ['unified', 'trade', 'spot', 'funding', 'account', 'swap']
 
                 for acct_type in search_types:
                     try:
@@ -148,6 +148,8 @@ class TradingEngine:
                                 params = {'accountType': 'TRADE'}
                             elif acct_type == 'spot':
                                 params = {'accountType': 'SPOT'}
+                            elif acct_type == 'funding':
+                                params = {'accountType': 'FUNDING'}
                             elif acct_type == 'swap':
                                 params = {'accountType': 'SWAP'}
                         else:
@@ -196,13 +198,15 @@ class TradingEngine:
                             assets = []
                             if isinstance(info, list): assets = info
                             elif isinstance(info, dict) and 'assets' in info: assets = info['assets']
+                            # Some responses put assets in a 'data' list
+                            elif isinstance(info, dict) and 'data' in info and isinstance(info['data'], list): assets = info['data']
                             
                             for asset in assets:
-                                cname = asset.get('coinName', asset.get('coin', asset.get('currency', '')))
-                                if cname.upper() == 'USDT':
+                                cname = asset.get('coinName', asset.get('coin', asset.get('currency', asset.get('asset', ''))))
+                                if str(cname).upper() == 'USDT':
                                     usdt_data = {
                                         'total': float(asset.get('balance', asset.get('total', 0))),
-                                        'free': float(asset.get('available', asset.get('free', 0)))
+                                        'free': float(asset.get('available', asset.get('free', asset.get('equity', 0))))
                                     }
                                     break
 
@@ -216,7 +220,7 @@ class TradingEngine:
                             if usdt_data:
                                 logger.info(f"ℹ️ {acct_type} has 0 USDT. Continuing search...")
                     except Exception as e:
-                        logger.debug(f"❌ {acct_type} fetch failed: {e}")
+                        logger.warning(f"❌ {acct_type} fetch attempt failed/timed out: {str(e)[:100]}")
                         continue
                 
                 if not found_usdt:
