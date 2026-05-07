@@ -903,7 +903,6 @@ export default function App() {
                           });
                           if (res.ok) {
                             addNotification('success', `Aegis ${tradingMode === 'paper' ? 'Virtual' : 'Live'} Core synchronized.`);
-                            if (!isBotRunning) toggleBot();
                             syncAppData();
                           } else {
                             addNotification('error', 'Protocol synchronization failed. Check Auth Key.');

@@ -284,7 +284,7 @@ async function startServer() {
         binance_api_key: state.binance_api_key || (process.env.BINANCE_API_KEY ? '******** (System Env)' : ''),
         binance_secret_key: state.binance_secret_key || (process.env.BINANCE_SECRET_KEY ? '********' : ''),
         bitget_api_key: state.bitget_api_key || (process.env.BITGET_API_KEY ? '******** (System Env)' : ''),
-        bitget_secret_key: state.bitget_secret_key || (process.env.BITGET_SECRET_KEY ? '********' : ''),
+        bitget_secret_key: state.bitget_secret_key || ((process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY) ? '********' : ''),
         bitget_passphrase: state.bitget_passphrase || (process.env.BITGET_PASSPHRASE ? '********' : ''),
         telegram_bot_token: state.telegram_bot_token || (process.env.TELEGRAM_BOT_TOKEN ? '********' : ''),
         telegram_chat_id: state.telegram_chat_id || (process.env.TELEGRAM_CHAT_ID ? '********' : '')

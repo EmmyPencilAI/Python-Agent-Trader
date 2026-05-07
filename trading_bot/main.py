@@ -57,14 +57,23 @@ class TradingEngine:
             
             def get_val(key, default):
                 row = db_keys.get(key)
-                val = row[0] if row and row[0] and str(row[0]).strip() and '********' not in str(row[0]) else None
-                return val if val else default
+                if row and row[0]:
+                    val = str(row[0]).strip()
+                    # If it's a real value (not empty, not masked), use it
+                    if val and '********' not in val:
+                        return val
+                # Otherwise, return the environment default
+                return default
 
             binance_key = get_val('binance_api_key', Config.BINANCE_API_KEY)
             binance_secret = get_val('binance_secret_key', Config.BINANCE_SECRET_KEY)
             bitget_key = get_val('bitget_api_key', Config.BITGET_API_KEY)
             bitget_secret = get_val('bitget_secret_key', Config.BITGET_API_SECRET)
             bitget_pwd = get_val('bitget_passphrase', Config.BITGET_PASSPHRASE)
+            
+            logger.info(f"Keys loaded - Binance: {'Set' if binance_key else 'Missing'}, Bitget: {'Set' if bitget_key else 'Missing'}")
+            if bitget_key and not bitget_pwd:
+                 logger.warning("Bitget is set but Passphrase is missing. Bitget might require it.")
             
             self.current_keys = {
                 'binance_key': binance_key,
@@ -108,7 +117,8 @@ class TradingEngine:
             raise ValueError(f"Unsupported exchange: {exch_id}")
 
     def get_usdt_balance(self):
-        if hasattr(self, '_last_bal_time') and time.time() - self._last_bal_time < 10:
+        # Force refresh if we don't have a balance yet
+        if hasattr(self, '_last_bal_time') and time.time() - self._last_bal_time < 5:
              return self._last_cached_bal
 
         balance = 0.0
@@ -120,73 +130,83 @@ class TradingEngine:
                 bal_data = {}
                 found_usdt = False
                 
-                for acct_type in ['spot', 'unified', 'trade', 'contract']:
+                # Bitget specific: Unified accounts often need 'unified' type
+                search_types = ['spot', 'unified', 'trade', 'contract']
+                if self.exchange.id == 'bitget':
+                     search_types = ['unified', 'spot', 'account', 'swap']
+
+                for acct_type in search_types:
                     try:
-                        logger.info(f"Attempting balance fetch for type: {acct_type}")
-                        bt_data = self.exchange.fetch_balance({'type': acct_type})
+                        logger.info(f"Checking {self.exchange.id} {acct_type} balance...")
+                        if acct_type == 'unified' and self.exchange.id == 'bitget':
+                             # Bitget V2 Unified Account
+                             bt_data = self.exchange.fetch_balance({'accountType': 'UNIFIED'})
+                        elif acct_type == 'account' and self.exchange.id == 'bitget':
+                             # Alternative for some Bitget accounts
+                             bt_data = self.exchange.fetch_balance()
+                        else:
+                             bt_data = self.exchange.fetch_balance({'type': acct_type})
                         
-                        # Check if USDT is in this response
-                        temp_usdt = {}
-                        if 'USDT' in bt_data and float(bt_data['USDT'].get('total', 0)) > 0:
-                            temp_usdt = bt_data['USDT']
-                        elif 'usdt' in bt_data and float(bt_data['usdt'].get('total', 0)) > 0:
-                            temp_usdt = bt_data['usdt']
-                            
-                        if temp_usdt:
+                        usdt_data = {}
+                        # Check direct keys
+                        if 'USDT' in bt_data:
+                            usdt_data = bt_data['USDT']
+                        elif 'usdt' in bt_data:
+                            usdt_data = bt_data['usdt']
+                        
+                        # Check "totalEquity" for Unified accounts
+                        if not usdt_data and 'info' in bt_data:
+                            info = bt_data['info']
+                            if isinstance(info, dict):
+                                if 'totalEquity' in info: # Bitget Unified
+                                    usdt_data = {'total': float(info['totalEquity']), 'free': float(info.get('usdtEquity') or info['totalEquity'])}
+                                elif 'usdtEquity' in info:
+                                    usdt_data = {'total': float(info['usdtEquity']), 'free': float(info['usdtEquity'])}
+
+                        if usdt_data and float(usdt_data.get('total', 0)) > 0:
                             bal_data = bt_data
                             found_usdt = True
-                            logger.info(f"Found non-zero USDT in {acct_type} account.")
+                            logger.info(f"Successfully found USDT in {acct_type} account: {usdt_data}")
                             break
                     except Exception as e:
                         logger.debug(f"Balance fetch for {acct_type} failed: {e}")
                         continue
                 
                 if not found_usdt:
-                    # Fallback to standard fetch if loops failed to find anything
+                    logger.warning(f"No non-zero USDT found in any common account types for {self.exchange.id}")
+                    # Final fallback to raw info scanning
                     try:
-                        bal_data = self.exchange.fetch_balance()
+                        bt_data = self.exchange.fetch_balance()
+                        if 'USDT' in bt_data:
+                            usdt_data = bt_data['USDT']
+                        else:
+                            usdt_data = {}
                     except:
-                        pass
+                        usdt_data = {}
 
-                # Extract USDT data from bal_data
+                # Extract USDT data
+                # (Existing priority logic follows...)
                 
-                # Priority 1: Direct currency keys (Standard CCXT)
-                if 'USDT' in bal_data:
-                    usdt_data = bal_data['USDT']
-                elif 'usdt' in bal_data:
-                    usdt_data = bal_data['usdt']
-                
-                # Priority 2: info block (Raw exchange response)
-                elif 'info' in bal_data and isinstance(bal_data['info'], list):
-                    # Some exchanges (like Bitget Margin/Futures) return info as a list
-                    for asset in bal_data['info']:
-                        if asset.get('coinName') == 'USDT' or asset.get('currency') == 'USDT' or asset.get('coin') == 'USDT':
-                            usdt_data = {
-                                'total': asset.get('balance') or asset.get('total') or asset.get('available'),
-                                'free': asset.get('available') or asset.get('free') or asset.get('equity')
-                            }
-                            break
-                elif 'info' in bal_data and isinstance(bal_data['info'], dict):
-                    # Bitget Unified might have 'assets' or 'subAccountRow'
-                    info = bal_data['info']
-                    if 'assets' in info:
-                         for asset in info['assets']:
-                             if asset.get('coinName') == 'USDT':
-                                 usdt_data = {'total': asset.get('total'), 'free': asset.get('available')}
-                                 break
-                
-                # Priority 3: total/free aggregate maps
-                if not usdt_data and 'total' in bal_data and 'USDT' in bal_data['total']:
-                    usdt_data = {
-                        'total': bal_data['total']['USDT'],
-                        'free': bal_data['free']['USDT'] if 'free' in bal_data else 0
-                    }
-                
-                # Final check: is there ANY USDT?
                 if not usdt_data:
-                    # Log keys to debug
-                    logger.warning(f"USDT not found in balance keys: {list(bal_data.keys())[:10]}")
-                    # Try to find anything matching USDT in info
+                    # Priority 2: info block (Raw exchange response) scanning if we haven't found it yet
+                    if 'info' in bal_data and isinstance(bal_data['info'], list):
+                        for asset in bal_data['info']:
+                            if asset.get('coinName') == 'USDT' or asset.get('currency') == 'USDT' or asset.get('coin') == 'USDT':
+                                usdt_data = {
+                                    'total': asset.get('balance') or asset.get('total') or asset.get('available'),
+                                    'free': asset.get('available') or asset.get('free') or asset.get('equity')
+                                }
+                                break
+                    elif 'info' in bal_data and isinstance(bal_data['info'], dict):
+                        info = bal_data['info']
+                        if 'assets' in info:
+                             for asset in info['assets']:
+                                 if asset.get('coinName') == 'USDT':
+                                     usdt_data = {'total': asset.get('total'), 'free': asset.get('available')}
+                                     break
+
+                if not usdt_data:
+                    logger.warning("Still no USDT data found after all checks.")
                     total_bal = 0.0
                     free_bal = 0.0
                 else:
@@ -529,6 +549,7 @@ class TradingEngine:
                 # Periodic balance history recording (every ~10 scans)
                 if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
                     bal_to_record = self.get_usdt_balance()
+                    logger.info(f"❤️ HEARTBEAT | Mode: {self.trading_mode.upper()} | Balance: ${bal_to_record:.2f} | Live: {self.is_running}")
                     self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
                     self.db.conn.commit()
                     last_balance_record = time.time()

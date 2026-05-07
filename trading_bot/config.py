@@ -8,8 +8,8 @@ class Config:
     BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
     
     BITGET_API_KEY = os.getenv("BITGET_API_KEY")
-    BITGET_API_SECRET = os.getenv("BITGET_API_SECRET")
-    BITGET_PASSPHRASE = os.getenv("BITGET_PASSPHRASE") # Bitget requires a passphrase
+    BITGET_API_SECRET = os.getenv("BITGET_API_SECRET") or os.getenv("BITGET_SECRET_KEY")
+    BITGET_PASSPHRASE = os.getenv("BITGET_PASSPHRASE")
 
     ACTIVE_EXCHANGE = os.getenv("ACTIVE_EXCHANGE", "bitget").lower() # 'binance' or 'bitget'
     TRADING_MODE = os.getenv("TRADING_MODE", "paper").lower() # 'real' or 'paper'
