@@ -130,10 +130,10 @@ class TradingEngine:
                 bal_data = {}
                 found_usdt = False
                 
-                # Bitget specific: Unified accounts often need 'unified' type
-                search_types = ['spot', 'unified', 'trade', 'funding', 'contract', 'account', 'swap']
+                # Bitget specific search order
+                search_types = ['unified', 'trade', 'spot', 'funding', 'account']
                 if self.exchange.id == 'bitget':
-                     search_types = ['unified', 'trade', 'spot', 'funding', 'account', 'swap']
+                     search_types = ['unified', 'trade', 'spot', 'account', 'funding', 'swap']
 
                 for acct_type in search_types:
                     try:
@@ -227,13 +227,30 @@ class TradingEngine:
                     logger.warning(f"⚠️ No USDT found in standard accounts. Trying one last raw fetch.")
                     try:
                         bt_data = self.exchange.fetch_balance()
-                        # Last ditch: check EVERYTHING in bt_data
-                        for key, val in bt_data.items():
-                            if key.upper() == 'USDT' and isinstance(val, dict):
-                                usdt_data = val
-                                break
-                    except:
-                        pass
+                        # Final Attempt: Check EVERY key in the dictionary for USDT
+                        def recursive_find_usdt(data):
+                            if isinstance(data, dict):
+                                for k, v in data.items():
+                                    if str(k).upper() == 'USDT' and isinstance(v, (dict, float, int)):
+                                        return v
+                                    res = recursive_find_usdt(v)
+                                    if res: return res
+                            elif isinstance(data, list):
+                                for item in data:
+                                    res = recursive_find_usdt(item)
+                                    if res: return res
+                            return None
+                        
+                        deep_res = recursive_find_usdt(bt_data)
+                        if deep_res:
+                            if isinstance(deep_res, dict):
+                                usdt_data = deep_res
+                            else:
+                                usdt_data = {'total': float(deep_res), 'free': float(deep_res)}
+                            found_usdt = True
+                            logger.info(f"💎 DEEP SCAN found USDT: {usdt_data}")
+                    except Exception as e:
+                        logger.error(f"Deep scan failed: {e}")
 
                 # Extract USDT data
                 # (Existing priority logic follows...)
@@ -608,21 +625,29 @@ class TradingEngine:
                     last_threshold_check = time.time()
 
             if self.is_running:
-                # MANDATORY FUND CHECK for Real Mode
+                # PRE-START VALIDATION for Real Mode
                 if self.trading_mode == "real":
                     try:
+                        logger.info("🛡️ Safety Check: Validating Liquidity before engine engagement...")
                         current_bal = self.get_usdt_balance()
                         if current_bal <= 0:
-                            logger.error("🛑 CRITICAL: Real Mode active but fetched balance is 0. Safety trigger: Stopping bot.")
-                            self.db.conn.execute("UPDATE bot_state SET value = 'stopped' WHERE key = 'running'")
-                            self.db.conn.commit()
+                            # DOUBLE CHECK: wait 2 seconds and try once more to avoid transient API errors
+                            time.sleep(2)
+                            current_bal = self.get_usdt_balance()
+                            
+                        if current_bal <= 0:
+                            logger.error("🛑 Aegis Safety Protocol: Real Mode detected $0.00 balance. Stopping engine.")
+                            self.db.set_bot_state('running', 'stopped')
                             self.is_running = False
-                            TelegramManager.send_message("⚠️ *Aegis Security Trigger*: Real trading stopped because balance was detected as $0.00. Check API permissions or funds.")
+                            
+                            # Ensure Telegram sends
+                            msg = "⚠️ *AEGIS SECURITY TRIGGER*\nReal Trading Mode was started but no USDT balance was found in your Bitget account.\n\n*Action Taken*: Engine Stopped.\n*Check*: API Key (Read/Trade permissions) or Fund location (Spot/Unified/Funding)."
+                            TelegramManager.send_message(msg)
                             continue
+                        else:
+                            logger.info(f"✅ Pre-start validation passed. Liquidity: ${current_bal:.2f}")
                     except Exception as e:
-                        logger.error(f"Balance check during start-sequence failed: {e}")
-                        # Don't stop if it's just a network glitch? Or better safe?
-                        # Let's be safe.
+                        logger.error(f"Safety balance check failed: {e}")
                         self.is_running = False
                         continue
                 

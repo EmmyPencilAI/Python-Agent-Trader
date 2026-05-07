@@ -89,3 +89,8 @@ class DatabaseManager:
         cursor.execute("SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?", (limit,))
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def set_bot_state(self, key, value):
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)", (key, str(value)))
+        self.conn.commit()

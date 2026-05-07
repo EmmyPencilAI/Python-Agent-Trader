@@ -30,7 +30,10 @@ import {
   BarChart3,
   CandlestickChart,
   Globe,
-  Clock
+  Clock,
+  Key,
+  X,
+  Shield
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -235,6 +238,7 @@ export default function App() {
   const [serverIp, setServerIp] = useState<string>('');
   
   // API Keys and External Config
+  const [showKeyManager, setShowKeyManager] = useState(false);
   const [exchangeKeys, setExchangeKeys] = useState({
     binance_api_key: '',
     binance_secret_key: '',
@@ -881,8 +885,16 @@ export default function App() {
                             Aegis is currently synchronized with your <span className="text-white font-bold">{activeExchange.toUpperCase()}</span> treasury. Liquidity is managed in real-time from your exchange wallet.
                           </p>
                           <div className="mt-6 flex flex-wrap gap-3">
-                             <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500">KEY: {exchangeKeys.binance_api_key ? '***' + exchangeKeys.binance_api_key.slice(-4) : 'NOT SET'}</div>
-                             <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500">SEC: {exchangeKeys.binance_secret_key ? 'PROTECTED' : 'NOT SET'}</div>
+                             <button 
+                               onClick={() => setShowKeyManager(true)}
+                               className="px-4 py-2 bg-emerald-600/20 border border-emerald-500/50 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 hover:bg-emerald-600/30 transition-all font-mono"
+                             >
+                               [ AUTH PARAMETERS : OPEN ]
+                             </button>
+                             <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500 flex items-center gap-2">
+                               <div className={cn("w-1.5 h-1.5 rounded-full", (activeExchange === 'binance' ? exchangeKeys.binance_api_key : exchangeKeys.bitget_api_key) ? "bg-emerald-500" : "bg-red-500")} />
+                               {activeExchange.toUpperCase()} SYNC
+                             </div>
                           </div>
                         </div>
                       )}
@@ -1493,6 +1505,142 @@ export default function App() {
       <button className="md:hidden fixed bottom-24 right-6 w-14 h-14 bg-emerald-600 rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform z-50">
         <Bell className="w-6 h-6" />
       </button>
+
+      {/* Auth Protocol Modal */}
+      <AnimatePresence>
+        {showKeyManager && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-emerald-600/5">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight flex items-center gap-3">
+                    <Key className="text-emerald-500" /> AUTH PARAMETERS
+                  </h2>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mt-1">Configure Live Market Connectivity</p>
+                </div>
+                <button 
+                  onClick={() => setShowKeyManager(false)}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-full transition-all"
+                >
+                  <X size={20} className="text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-8 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-zinc-800">
+                {/* Bitget Configuration */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 mb-2">
+                     <div className="w-6 h-6 rounded bg-[#00f0ff] flex items-center justify-center text-[10px] font-black text-black">BG</div>
+                     <h3 className="font-bold text-xs uppercase tracking-widest text-zinc-400">Bitget V2 Connectivity</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">API Key</label>
+                      <input 
+                        type="text"
+                        placeholder={exchangeKeys.bitget_api_key || "Enter Bitget API Key"}
+                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, bitget_api_key: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all placeholder:text-zinc-800"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Secret Key</label>
+                        <input 
+                          type="password"
+                          placeholder="••••••••••••"
+                          onChange={(e) => setExchangeKeys(prev => ({ ...prev, bitget_secret_key: e.target.value }))}
+                          className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Passphrase</label>
+                        <input 
+                          type="password"
+                          placeholder="Auth Password"
+                          onChange={(e) => setExchangeKeys(prev => ({ ...prev, bitget_passphrase: e.target.value }))}
+                          className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Binance Configuration */}
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <div className="flex items-center gap-3 mb-2">
+                     <div className="w-6 h-6 rounded bg-yellow-500 flex items-center justify-center text-[10px] font-black text-black">BN</div>
+                     <h3 className="font-bold text-xs uppercase tracking-widest text-zinc-400">Binance Direct Link</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">API Key</label>
+                      <input 
+                        type="text"
+                        placeholder={exchangeKeys.binance_api_key || "Enter Binance API Key"}
+                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, binance_api_key: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-yellow-500/80 focus:border-yellow-500/40 outline-none transition-all placeholder:text-zinc-800"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Secret Key</label>
+                      <input 
+                        type="password"
+                        placeholder="••••••••••••"
+                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, binance_secret_key: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-yellow-500/80 focus:border-yellow-500/40 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-emerald-600/5 flex flex-col md:flex-row items-center justify-between border-t border-white/5 gap-6">
+                <div className="flex items-center gap-3">
+                  <Shield className="text-emerald-500 w-5 h-5" />
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] max-w-[200px]">Keys are validated and stored in server-side AES encrypted hot storage.</span>
+                </div>
+                <button 
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                        body: JSON.stringify({ 
+                          ...exchangeKeys,
+                          mode: tradingMode
+                        })
+                      });
+                      if (res.ok) {
+                        addNotification('success', 'Aegis Core Synchronized');
+                        setShowKeyManager(false);
+                        syncAppData();
+                      } else {
+                        const errData = await res.json();
+                        addNotification('error', `Sync Failure: ${errData.error || 'Server error'}`);
+                      }
+                    } catch (err) {
+                      addNotification('error', 'Sync Failure: Infrastructure Timeout');
+                    }
+                  }}
+                  className="w-full md:w-auto px-10 py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-2xl shadow-emerald-600/20 active:scale-95 transition-all"
+                >
+                  DEPLOY TO ENGINE
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
