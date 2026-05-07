@@ -131,58 +131,105 @@ class TradingEngine:
                 found_usdt = False
                 
                 # Bitget specific: Unified accounts often need 'unified' type
-                search_types = ['spot', 'unified', 'trade', 'contract']
+                search_types = ['spot', 'unified', 'trade', 'contract', 'account', 'swap']
                 if self.exchange.id == 'bitget':
-                     search_types = ['unified', 'spot', 'account', 'swap']
+                     search_types = ['unified', 'trade', 'spot', 'account', 'swap']
 
                 for acct_type in search_types:
                     try:
-                        logger.info(f"Checking {self.exchange.id} {acct_type} balance...")
-                        if acct_type == 'unified' and self.exchange.id == 'bitget':
-                             # Bitget V2 Unified Account
-                             bt_data = self.exchange.fetch_balance({'accountType': 'UNIFIED'})
-                        elif acct_type == 'account' and self.exchange.id == 'bitget':
-                             # Alternative for some Bitget accounts
-                             bt_data = self.exchange.fetch_balance()
-                        else:
-                             bt_data = self.exchange.fetch_balance({'type': acct_type})
+                        logger.info(f"🔍 Checking {self.exchange.id} {acct_type} balance...")
                         
+                        # Bitget V2 Specific parameters
+                        params = {}
+                        if self.exchange.id == 'bitget':
+                            if acct_type == 'unified':
+                                params = {'accountType': 'UNIFIED'}
+                            elif acct_type == 'trade':
+                                params = {'accountType': 'TRADE'}
+                            elif acct_type == 'spot':
+                                params = {'accountType': 'SPOT'}
+                            elif acct_type == 'swap':
+                                params = {'accountType': 'SWAP'}
+                        else:
+                            params = {'type': acct_type} if acct_type != 'account' else {}
+                        
+                        bt_data = self.exchange.fetch_balance(params)
                         usdt_data = {}
-                        # Check direct keys
+                        
+                        # DEBUG: Log keys for the first few fetches to see structure
+                        if not hasattr(self, '_debug_count'): self._debug_count = 0
+                        if self._debug_count < 3 and self.exchange.id == 'bitget':
+                            logger.info(f"Bitget {acct_type} Raw Keys: {list(bt_data.keys())[:15]}")
+                            if 'info' in bt_data:
+                                info_keys = list(bt_data['info'].keys()) if isinstance(bt_data['info'], dict) else "List"
+                                logger.info(f"Bitget {acct_type} Info: {info_keys}")
+                            self._debug_count += 1
+                        
+                        # 1. Standard CCXT structure
                         if 'USDT' in bt_data:
                             usdt_data = bt_data['USDT']
                         elif 'usdt' in bt_data:
                             usdt_data = bt_data['usdt']
                         
-                        # Check "totalEquity" for Unified accounts
+                        # 2. Bitget Unified Equity (Very common for modern Bitget accounts)
                         if not usdt_data and 'info' in bt_data:
                             info = bt_data['info']
                             if isinstance(info, dict):
-                                if 'totalEquity' in info: # Bitget Unified
-                                    usdt_data = {'total': float(info['totalEquity']), 'free': float(info.get('usdtEquity') or info['totalEquity'])}
+                                # V2 Unified Response
+                                if 'totalEquity' in info:
+                                    usdt_data = {
+                                        'total': float(info.get('totalEquity', 0)), 
+                                        'free': float(info.get('usdtEquity', info.get('totalEquity', 0)))
+                                    }
                                 elif 'usdtEquity' in info:
                                     usdt_data = {'total': float(info['usdtEquity']), 'free': float(info['usdtEquity'])}
+                                elif 'data' in info and isinstance(info['data'], list) and len(info['data']) > 0:
+                                    # Some Bitget V2 responses nest under 'data'
+                                    first = info['data'][0]
+                                    if 'totalEquity' in first:
+                                         usdt_data = {'total': float(first['totalEquity']), 'free': float(first.get('usdtEquity', first['totalEquity']))}
+                        
+                        # 3. Deep Scan 'info' if still not found
+                        if not usdt_data and 'info' in bt_data:
+                            info = bt_data['info']
+                            # If info is a list of assets (Classic Spot/Margin)
+                            assets = []
+                            if isinstance(info, list): assets = info
+                            elif isinstance(info, dict) and 'assets' in info: assets = info['assets']
+                            
+                            for asset in assets:
+                                cname = asset.get('coinName', asset.get('coin', asset.get('currency', '')))
+                                if cname.upper() == 'USDT':
+                                    usdt_data = {
+                                        'total': float(asset.get('balance', asset.get('total', 0))),
+                                        'free': float(asset.get('available', asset.get('free', 0)))
+                                    }
+                                    break
 
                         if usdt_data and float(usdt_data.get('total', 0)) > 0:
                             bal_data = bt_data
                             found_usdt = True
-                            logger.info(f"Successfully found USDT in {acct_type} account: {usdt_data}")
+                            logger.info(f"✅ Found USDT in {acct_type}: {usdt_data}")
                             break
+                        else:
+                            # If we found data but it's 0, we keep looking in other accounts
+                            if usdt_data:
+                                logger.info(f"ℹ️ {acct_type} has 0 USDT. Continuing search...")
                     except Exception as e:
-                        logger.debug(f"Balance fetch for {acct_type} failed: {e}")
+                        logger.debug(f"❌ {acct_type} fetch failed: {e}")
                         continue
                 
                 if not found_usdt:
-                    logger.warning(f"No non-zero USDT found in any common account types for {self.exchange.id}")
-                    # Final fallback to raw info scanning
+                    logger.warning(f"⚠️ No USDT found in standard accounts. Trying one last raw fetch.")
                     try:
                         bt_data = self.exchange.fetch_balance()
-                        if 'USDT' in bt_data:
-                            usdt_data = bt_data['USDT']
-                        else:
-                            usdt_data = {}
+                        # Last ditch: check EVERYTHING in bt_data
+                        for key, val in bt_data.items():
+                            if key.upper() == 'USDT' and isinstance(val, dict):
+                                usdt_data = val
+                                break
                     except:
-                        usdt_data = {}
+                        pass
 
                 # Extract USDT data
                 # (Existing priority logic follows...)
@@ -299,11 +346,22 @@ class TradingEngine:
         if self.trading_mode == "real":
             try:
                 # Real Execution via CCXT
+                execution_qty = quantity
+                
+                # Bitget & some others require Quote currency (USDT) for Market BUY orders
+                if signal['action'] == 'BUY' and self.exchange.id == 'bitget':
+                    # For market buy on Bitget, 'amount' is actually the total USDT to spend
+                    # We already have this calculated as price * quantity (roughly alloc_usdt)
+                    execution_qty = quantity * price
+                    logger.info(f"Bitget detected: Using Quote amount {execution_qty:.2f} USDT for market buy")
+
                 if signal['action'] == 'BUY':
-                    order = self.exchange.create_market_buy_order(symbol, quantity)
+                    order = self.exchange.create_market_buy_order(symbol, execution_qty)
                 else:
+                    # Market SELL is always in Base currency (how much BTC to sell)
                     order = self.exchange.create_market_sell_order(symbol, quantity)
-                logger.info(f"✅ REAL ORDER FILLED: {symbol} | ID: {order['id']}")
+                
+                logger.info(f"✅ REAL ORDER FILLED: {symbol} | ID: {order.get('id', 'N/A')}")
             except Exception as e:
                 logger.error(f"❌ EXECUTION FAILED: {symbol} | {e}")
                 return
@@ -546,6 +604,24 @@ class TradingEngine:
                     last_threshold_check = time.time()
 
             if self.is_running:
+                # MANDATORY FUND CHECK for Real Mode
+                if self.trading_mode == "real":
+                    try:
+                        current_bal = self.get_usdt_balance()
+                        if current_bal <= 0:
+                            logger.error("🛑 CRITICAL: Real Mode active but fetched balance is 0. Safety trigger: Stopping bot.")
+                            self.db.conn.execute("UPDATE bot_state SET value = 'stopped' WHERE key = 'running'")
+                            self.db.conn.commit()
+                            self.is_running = False
+                            TelegramManager.send_message("⚠️ *Aegis Security Trigger*: Real trading stopped because balance was detected as $0.00. Check API permissions or funds.")
+                            continue
+                    except Exception as e:
+                        logger.error(f"Balance check during start-sequence failed: {e}")
+                        # Don't stop if it's just a network glitch? Or better safe?
+                        # Let's be safe.
+                        self.is_running = False
+                        continue
+                
                 # Periodic balance history recording (every ~10 scans)
                 if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
                     bal_to_record = self.get_usdt_balance()
