@@ -1156,8 +1156,13 @@ export default function App() {
                     
                     <button 
                       onClick={() => {
-                        exportLedgerPDF(trades, tradeFilter);
-                        addNotification('success', `Trade ledger exported as beautiful PDF (${tradeFilter.toUpperCase()})`);
+                        try {
+                          exportLedgerPDF(trades, tradeFilter);
+                          addNotification('success', `Trade ledger exported as beautiful PDF (${tradeFilter.toUpperCase()})`);
+                        } catch (err) {
+                          console.error("PDF export error:", err);
+                          addNotification('error', `PDF generation failed: ${err instanceof Error ? err.message : String(err)}`);
+                        }
                       }}
                       className="ml-2 px-4 py-1.5 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-black border border-emerald-500/10 transition-colors uppercase flex items-center gap-1.5 active:scale-95 shadow-md"
                     >

@@ -1,5 +1,5 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export interface Trade {
   id: number;
@@ -145,10 +145,11 @@ export function exportLedgerPDF(trades: Trade[], mode: string, operatorEmail: st
     const entryPrice = typeof t.entry_price === 'number' ? `$${t.entry_price.toFixed(4)}` : t.entry_price;
     const exitPrice = typeof t.exit_price === 'number' ? `$${t.exit_price.toFixed(4)}` : (t.exit_price || '-');
     const priceRange = `${entryPrice} / ${exitPrice}`;
+    const timestampStr = t.timestamp ? String(t.timestamp) : '';
     
     return [
       `#${t.id}`,
-      t.timestamp ? t.timestamp.replace('T', ' ').substring(0, 19) : '-',
+      timestampStr ? timestampStr.replace('T', ' ').substring(0, 19) : '-',
       t.pair || '-',
       t.action || '-',
       t.strategy || '-',
@@ -158,7 +159,7 @@ export function exportLedgerPDF(trades: Trade[], mode: string, operatorEmail: st
     ];
   });
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: 85,
     head: headers,
     body: rows,
@@ -239,7 +240,9 @@ export function exportLedgerPDF(trades: Trade[], mode: string, operatorEmail: st
   });
 
   // --- FOOTER AND PAGE NUMBERING ---
-  const pageCount = doc.internal.getNumberOfPages();
+  const pageCount = typeof doc.getNumberOfPages === 'function' 
+    ? doc.getNumberOfPages() 
+    : (doc.internal?.getNumberOfPages?.() || 1);
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     
