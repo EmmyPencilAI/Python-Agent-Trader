@@ -393,60 +393,142 @@ async function startServer() {
     }
   });
 
+  app.get('/api/project-archive', (req, res) => {
+    try {
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', 'attachment; filename="aegis-project.tar.gz"');
+      
+      const tarProcess = spawn('tar', [
+        '-czf', '-', 
+        '--exclude=node_modules', 
+        '--exclude=database.sqlite', 
+        '--exclude=.git', 
+        '--exclude=dist', 
+        '.'
+      ]);
+      
+      tarProcess.stdout.pipe(res);
+      
+      tarProcess.stderr.on('data', (data) => {
+        console.error(`[ARCHIVE-ERR] ${data.toString()}`);
+      });
+    } catch (err) {
+      console.error('[ARCHIVE] Failed to create tar archive:', err);
+      res.status(500).json({ error: 'Failed to create project archive' });
+    }
+  });
+
+  app.get('/api/system-diagnostics', (req, res) => {
+    try {
+      const memoryUsage = process.memoryUsage();
+      const uptimeSeconds = process.uptime();
+      
+      res.json({
+        node_version: process.version,
+        platform: process.platform,
+        memory_rss_mb: (memoryUsage.rss / 1024 / 1024).toFixed(1),
+        uptime_hours: (uptimeSeconds / 3600).toFixed(2),
+        bot_alive: pythonProcess !== null,
+        status: pythonProcess !== null ? 'running' : 'stopped',
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('[DIAGNOSTICS] Failed to fetch system diagnostics:', err);
+      res.status(500).json({ error: 'Failed to fetch diagnostics' });
+    }
+  });
+
   app.get('/api/deploy-script', (req, res) => {
+    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const host = req.headers.host || 'localhost:3000';
+    const dashboardUrl = `${protocol}://${host}`;
+
     res.setHeader('Content-Type', 'text/plain');
     res.send(`#!/bin/bash
 # ==============================================================================
-#                 AEGIS 2.0X - INTERSERVER.NET VPS INSTALLER
+#                 AEGIS 2.0X - AUTOMATED 24/7/365 VPS DEPLOYER
 # ==============================================================================
-# This script automates dependency setup, directory structures, database seeding,
-# and system service configs for low-latency market execution on Interserver.
+# Target Host: Interserver.net VPS (Ubuntu 22.04 / 24.04 LTS recommended)
+# This script automates dependency setup, downloads the exact active codebase,
+# provisions local SQLite databases, builds the Vite frontend, and initiates
+# the engine as a PM2 persistent background service.
 # ==============================================================================
 
 set -e
 
 # Visual branding
-echo -e "\\033[1;32m"
+echo -e "\\\\033[1;32m"
 echo "    _    _____ ____ ___ ____    ____   ___  _  __"
-echo "   / \\  | ____/ ___|_ _/ ___|  |___ \\ / _ \\| |/ /"
-echo "  / _ \\ |  _| | |  _ | |\\___ \\    __) | | | | ' / "
-echo " / ___ \\| |___| |_| || | ___) |  / __/| |_| | . \\"
-echo "/_/   \\_\\_____|\\____|___|____/  |_____|\\___/|_|\\_\\"
-echo -e "\\033[0m"
+echo "   / \\\\  | ____/ ___|_ _/ ___|  |___ \\\\ / _ \\\\| |/ /"
+echo "  / _ \\\\ |  _| | |  _ | |\\\\___ \\\\    __) | | | | ' / "
+echo " / ___ \\\\| |___| |_| || | ___) |  / __/| |_| | . \\\\"
+echo "/_/   \\\\_\\\\_____|\\\\____|___|____/  |_____|\\\\___/|_|\\\\_\\\\"
+echo -e "\\\\033[0m"
 echo "======================================================================"
 echo "          DEPLOYING AUTONOMOUS TRADING ENGINE TO INTERSERVER         "
 echo "======================================================================"
+echo "Dashboard Source: ${dashboardUrl}"
+echo "======================================================================"
 
 # 1. Update packages
-echo "📦 [1/5] Synchronizing Linux Package Repository..."
+echo "📦 [1/6] Synchronizing Linux Package Repository..."
 sudo apt-get update -y
 
 # 2. Install essential system dependencies
-echo "🛠️ [2/5] Installing core dependencies (Node.js, Python3, SQLite)..."
+echo "🛠️ [2/6] Installing Node.js, NPM, Python3, SQLite..."
 sudo apt-get install -y curl git python3 python3-pip sqlite3 nodejs npm build-essential
 
-# 3. Create virtual environments and install CCXT
-echo "🐍 [3/5] Setting up isolated Python execution context..."
-mkdir -p ./trading_bot
+# 3. Create or clean project folder
+echo "📁 [3/6] Fetching and unpacking project codebase..."
+mkdir -p aegis-trader
+cd aegis-trader
+
+# Download the bundled code
+curl -sSL "${dashboardUrl}/api/project-archive" -o project.tar.gz
+tar -xzf project.tar.gz
+rm project.tar.gz
+
+# 4. Create virtual environments and install CCXT
+echo "🐍 [4/6] Setting up Python virtual environment & CCXT..."
 if [ ! -d "venv" ]; then
   python3 -m venv venv
 fi
 ./venv/bin/pip install --upgrade pip
 ./venv/bin/pip install pandas numpy ccxt python-dotenv
 
-# 4. Install NPM modules for the terminal UI
-echo "⚡ [4/5] Running high-speed build compiling terminal frontend..."
-if [ -f "package.json" ]; then
-  npm install
-  npm run build || echo "Warning: Frontend build step skipped, using local static distributions."
-fi
+# 5. Install NPM modules and build frontend
+echo "⚡ [5/6] Building high-performance UI terminal assets..."
+npm install
+npm run build
 
-# 5. Finished setup
+# 6. Install PM2 and launch as background daemon
+echo "🚀 [6/6] Launching persistent PM2 execution layer..."
+sudo npm install -g pm2 || npm install -g pm2
+
+# Stop existing if running
+pm2 stop aegis-trader || true
+pm2 delete aegis-trader || true
+
+# Start Node server
+pm2 start "npm start" --name "aegis-trader" --update-env
+
+# Generate startup script
+pm2 save
+sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME || true
+
 echo "======================================================================"
-echo "🎉 DEPLOYMENT SUCCEEDED!"
+echo "🎉 DEPLOYMENT AND PERSISTENCE INITIALIZED SUCCESSFULLY!"
 echo "======================================================================"
-echo "To initialize and start the trading bot daemon in background mode:"
-echo -e "👉 \\033[1;36mnohup node server.js > aegis_runtime.log 2>&1 &\\033[0m"
+echo "Aegis Trader is now running 24/7/365 in background mode via PM2 daemon."
+echo "If your Interserver VPS reboots, PM2 will automatically resurrect the bot."
+echo ""
+echo "📱 ACCESS THE TERMINAL:"
+echo -e "👉 \\\\033[1;36mhttp://<YOUR_VPS_IP>:3000\\\\033[0m"
+echo ""
+echo "📈 USEFUL COMMANDS ON YOUR VPS:"
+echo "   - View running status:   pm2 status"
+echo "   - View realtime logs:    pm2 logs aegis-trader"
+echo "   - View Node & system:    pm2 show aegis-trader"
 echo "======================================================================"
 `);
   });

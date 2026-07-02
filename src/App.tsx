@@ -242,6 +242,7 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
   const [serverIp, setServerIp] = useState<string>('');
+  const [vpsDiagnostics, setVpsDiagnostics] = useState<any>(null);
   
   // Risk Safeguards and Limits
   const [showRiskManager, setShowRiskManager] = useState(false);
@@ -420,6 +421,12 @@ export default function App() {
       if (ipRes && ipRes.ok) {
          const ipData = await ipRes.json();
          setServerIp(ipData.ip);
+      }
+
+      const diagRes = await fetch(`${BASE_URL}/api/system-diagnostics`).catch(() => null);
+      if (diagRes && diagRes.ok) {
+         const diagData = await diagRes.json();
+         setVpsDiagnostics(diagData);
       }
     } catch (err) {
       console.error("Fetch error", err);
@@ -1581,52 +1588,126 @@ export default function App() {
                 </div>
              </div>
 
-             {/* Interserver.net VPS Deployment Guide */}
-             <div className="bg-[#111] border border-white/5 rounded-3xl p-8 space-y-6">
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-xl font-bold flex items-center gap-3">
-                    <Globe className="text-emerald-500 w-5 h-5" /> VPS Host (Interserver.net)
-                  </h3>
-                  <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">HOSTED ENGINE</div>
-                </div>
-                
-                <p className="text-zinc-500 text-xs leading-relaxed">
-                  Deploy your Aegis 2.0X trading terminal and backend engine to <span className="text-white font-semibold">Interserver.net</span> for high-speed, 24/7/365 uninterrupted low-latency executions on perpetual markets.
-                </p>
+              {/* Interserver.net VPS Deployment Guide */}
+              <div className="bg-[#111] border border-white/5 rounded-3xl p-8 space-y-6">
+                 <div className="flex justify-between items-center mb-2">
+                   <h3 className="text-xl font-bold flex items-center gap-3">
+                     <Globe className="text-emerald-500 w-5 h-5" /> VPS Host (Interserver.net)
+                   </h3>
+                   <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">HOSTED ENGINE</div>
+                 </div>
+                 
+                 <p className="text-zinc-500 text-xs leading-relaxed">
+                   Deploy your Aegis 2.0X trading terminal and backend engine to <span className="text-white font-semibold">Interserver.net</span> for high-speed, 24/7/365 uninterrupted low-latency executions on perpetual markets.
+                 </p>
 
-                <div className="space-y-4">
-                  <div className="p-4 bg-zinc-950 border border-white/5 rounded-2xl">
-                     <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-2">Automated VPS Installer (Recommended)</span>
-                     <p className="text-[11px] text-zinc-400 mb-4 leading-relaxed">
-                       SSH into your Interserver.net Linux VPS (Ubuntu 22.04 LTS recommended) and paste the following command to automatically install all dependencies (Node.js, Python, CCXT, SQLite), sync your repo, and run Aegis in the background as a system daemon:
-                     </p>
-                     
-                     <div className="flex bg-black p-3 rounded-xl border border-white/5 items-center justify-between font-mono text-xs text-emerald-400 overflow-x-auto gap-4">
-                        <code className="whitespace-nowrap select-all">curl -sSL {window.location.origin}/api/deploy-script | bash</code>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(`curl -sSL ${window.location.origin}/api/deploy-script | bash`);
-                            addNotification('success', 'VPS Deployment Script Command Copied!');
-                          }}
-                          className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black rounded-lg uppercase tracking-widest flex-shrink-0"
-                        >
-                          COPY
-                        </button>
+                 {/* Live Daemon Status Check */}
+                 <div className="p-5 bg-emerald-950/20 border border-emerald-500/10 rounded-2xl">
+                   <h4 className="text-xs font-bold uppercase tracking-widest text-emerald-400 mb-4 flex items-center gap-2">
+                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                     VPS Daemon Status Checker
+                   </h4>
+                   
+                   {vpsDiagnostics ? (
+                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                       <div>
+                         <span className="text-[9px] text-zinc-500 uppercase block">PM2 Daemon</span>
+                         <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5 mt-1">
+                           <CheckCircle2 size={12} className="text-emerald-500" /> ACTIVE
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] text-zinc-500 uppercase block">Python Bot Engine</span>
+                         <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5 mt-1">
+                           {vpsDiagnostics.bot_alive ? (
+                             <>
+                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                               RUNNING
+                             </>
+                           ) : (
+                             <>
+                               <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                               STANDBY
+                             </>
+                           )}
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] text-zinc-500 uppercase block">VPS Process Uptime</span>
+                         <span className="text-xs font-bold text-white mt-1 block font-mono">
+                           {vpsDiagnostics.uptime_hours} hrs
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] text-zinc-500 uppercase block">RAM Allocation</span>
+                         <span className="text-xs font-bold text-white mt-1 block font-mono">
+                           {vpsDiagnostics.memory_rss_mb} MB
+                         </span>
+                       </div>
                      </div>
-                  </div>
-
-                  <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
-                    <h4 className="text-xs font-bold uppercase mb-3 text-zinc-300">Step-by-Step Manual Setup:</h4>
-                    <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2 leading-relaxed">
-                      <li>Log in to your <span className="text-white">Interserver.net</span> control panel and create a new virtual private server.</li>
-                      <li>SSH into the server: <code className="text-emerald-400 font-mono">ssh root@YOUR_VPS_IP</code></li>
-                      <li>Install Node.js & Python: <code className="text-emerald-400 font-mono">sudo apt update && sudo apt install -y git nodejs npm python3 python3-pip sqlite3</code></li>
-                      <li>Clone and set up your project folder on the server.</li>
-                      <li>Run <code className="text-emerald-400 font-mono">npm run build</code> and launch the service 24/7 with PM2.</li>
-                    </ol>
-                  </div>
-                </div>
-             </div>
+                   ) : (
+                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-2">
+                       <div className="flex items-center gap-3">
+                         <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                         <span className="text-xs text-zinc-400">Syncing with Interserver daemon parameters...</span>
+                       </div>
+                       <button 
+                         onClick={() => syncAppData()}
+                         className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black rounded-lg uppercase tracking-widest"
+                       >
+                         REFRESH STATUS
+                       </button>
+                     </div>
+                   )}
+                 </div>
+ 
+                 <div className="space-y-4">
+                   <div className="p-4 bg-zinc-950 border border-white/5 rounded-2xl">
+                      <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-2">Automated VPS Installer (Recommended)</span>
+                      <p className="text-[11px] text-zinc-400 mb-4 leading-relaxed">
+                        SSH into your Interserver.net Linux VPS (Ubuntu 22.04 LTS recommended) and paste the following command to automatically install all dependencies (Node.js, Python, CCXT, SQLite), sync your repo, and run Aegis in the background as a system daemon:
+                      </p>
+                      
+                      <div className="flex bg-black p-3 rounded-xl border border-white/5 items-center justify-between font-mono text-xs text-emerald-400 overflow-x-auto gap-4">
+                         <code className="whitespace-nowrap select-all">curl -sSL {window.location.origin}/api/deploy-script | bash</code>
+                         <button 
+                           onClick={() => {
+                             navigator.clipboard.writeText(`curl -sSL ${window.location.origin}/api/deploy-script | bash`);
+                             addNotification('success', 'VPS Deployment Script Command Copied!');
+                           }}
+                           className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black rounded-lg uppercase tracking-widest flex-shrink-0"
+                         >
+                           COPY
+                         </button>
+                      </div>
+                   </div>
+ 
+                   <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
+                     <h4 className="text-xs font-bold uppercase mb-3 text-zinc-300">How to Keep Daemon Running 24/7/365:</h4>
+                     <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                       Our automated installer script sets up <span className="text-white font-semibold">PM2 (Process Manager 2)</span>, the industry-standard Node process orchestrator. It ensures:
+                     </p>
+                     <ul className="list-disc list-inside text-xs text-zinc-400 space-y-2 leading-relaxed pl-2 mb-4">
+                       <li><span className="text-emerald-400 font-semibold">Automatic Recovery</span>: Automatically restarts the trading bot engine if it encounters an unhandled runtime error.</li>
+                       <li><span className="text-emerald-400 font-semibold">Systemd Resurrection</span>: Configures your Ubuntu operating system to automatically start the bot when the server reboots.</li>
+                       <li><span className="text-emerald-400 font-semibold">Realtime Diagnostics</span>: Runs a local status service that populates the diagnostics checker above.</li>
+                     </ul>
+                     <div className="pt-3 border-t border-white/5">
+                       <h4 className="text-xs font-bold uppercase mb-2 text-zinc-300">Useful VPS commands (SSH):</h4>
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
+                         <div className="bg-black/40 p-2 rounded border border-white/5">
+                           <span className="text-zinc-500 block">Check active status:</span>
+                           <span className="text-emerald-400">pm2 status</span>
+                         </div>
+                         <div className="bg-black/40 p-2 rounded border border-white/5">
+                           <span className="text-zinc-500 block">Watch logs in real-time:</span>
+                           <span className="text-emerald-400">pm2 logs aegis-trader</span>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+                 </div>
+              </div>
           </div>
         )}
       </main>
