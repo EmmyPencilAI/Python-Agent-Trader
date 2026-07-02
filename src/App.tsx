@@ -33,7 +33,12 @@ import {
   Clock,
   Key,
   X,
-  Shield
+  Shield,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  ShieldAlert,
+  Download
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -194,7 +199,7 @@ export default function App() {
   const [missionDuration, setMissionDuration] = useState('00:00:00');
   const [trades, setTrades] = useState<Trade[]>([]);
   const [tradeFilter, setTradeFilter] = useState<'all' | 'real'>('all');
-  const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 81240.50, ETHUSDT: 3421.55 });
+  const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 61240.50, ETHUSDT: 3350.20, SOLUSDT: 138.45, BNBUSDT: 565.10 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [performance, setPerformance] = useState({ total_trades: 0, wins: 0, total_pnl: 0 });
 
@@ -236,6 +241,16 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
   const [serverIp, setServerIp] = useState<string>('');
+  
+  // Risk Safeguards and Limits
+  const [showRiskManager, setShowRiskManager] = useState(false);
+  const [riskSettings, setRiskSettings] = useState({
+    max_drawdown: '5.0',
+    pos_size_limit_type: 'percentage',
+    pos_size_limit_value: '2.0',
+    max_daily_loss: '5.0',
+    max_trades_per_day: '100'
+  });
   
   // API Keys and External Config
   const [showKeyManager, setShowKeyManager] = useState(false);
@@ -371,6 +386,14 @@ export default function App() {
           telegram_bot_token: statusData.telegram_bot_token || '',
           telegram_chat_id: statusData.telegram_chat_id || ''
         }));
+
+        setRiskSettings({
+          max_drawdown: statusData.max_drawdown || '5.0',
+          pos_size_limit_type: statusData.pos_size_limit_type || 'percentage',
+          pos_size_limit_value: statusData.pos_size_limit_value || '2.0',
+          max_daily_loss: statusData.max_daily_loss || '5.0',
+          max_trades_per_day: statusData.max_trades_per_day || '100'
+        });
 
         // Fetch history
         try {
@@ -1106,8 +1129,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            </div>
-            {/* Bottom: Active Trades */}
+            </div>             {/* Bottom: Active Trades */}
             <div className="bg-[#111] border border-white/5 rounded-3xl overflow-hidden">
                <div className="p-8 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="text-xl font-bold">Recent Trade Ledger</h3>
@@ -1130,6 +1152,16 @@ export default function App() {
                           : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
                       )}
                     >REAL ONLY</button>
+                    
+                    <button 
+                      onClick={() => {
+                        window.open(`${BASE_URL}/api/export-ledger?mode=${tradeFilter}`, '_blank');
+                        addNotification('success', `Trade ledger exported as CSV (${tradeFilter.toUpperCase()})`);
+                      }}
+                      className="ml-2 px-4 py-1.5 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-black border border-emerald-500/10 transition-colors uppercase flex items-center gap-1.5 active:scale-95 shadow-md"
+                    >
+                      <Download className="w-3.5 h-3.5" /> EXPORT CSV
+                    </button>
                   </div>
                </div>
                <div className="overflow-x-auto">
@@ -1180,7 +1212,16 @@ export default function App() {
                              </span>
                            </td>
                             <td className="px-8 py-4 font-mono text-xs">${trade.entry_price.toLocaleString()}</td>
-                            <td className="px-8 py-4 text-xs font-semibold text-zinc-400">{trade.status}</td>
+                            <td className="px-8 py-4 text-xs font-semibold text-zinc-400"><div className="flex items-center gap-1.5">
+                                 {trade.status === 'CLOSED' ? (
+                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                                 ) : trade.status === 'OPEN' ? (
+                                   <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin flex-shrink-0" />
+                                 ) : (
+                                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500 animate-pulse flex-shrink-0" />
+                                 )}
+                                 <span className="uppercase tracking-wider">{trade.status}</span>
+                               </div></td>
                             <td className="px-8 py-4 text-right font-mono font-bold">
                               <span className={trade.pnl && trade.pnl > 0 ? "text-emerald-400" : "text-zinc-500"}>
                                 {typeof trade.pnl === 'number' ? `${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)}` : '--'}
@@ -1497,6 +1538,89 @@ export default function App() {
                   </div>
                 </div>
              </div>
+
+             {/* Strategic Risk Protocols Card */}
+             <div className="bg-[#111] border border-white/5 rounded-3xl p-8 space-y-6">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <Shield className="text-emerald-500 w-5 h-5" /> Strategic Risk Protocols
+                  </h3>
+                  <button 
+                    onClick={() => setShowRiskManager(true)}
+                    className="px-4 py-2 bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600/20 transition-all active:scale-95"
+                  >
+                    MANAGE LIMITS
+                  </button>
+                </div>
+                
+                <p className="text-zinc-500 text-xs leading-relaxed uppercase">
+                  Define maximum allowable drawdown thresholds, position scaling limits, and active trading guards to secure portfolio liquidity across high-frequency execution cycles.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Max Drawdown (MDD)</span>
+                    <span className="text-sm font-mono font-bold text-emerald-400">{riskSettings.max_drawdown}%</span>
+                  </div>
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Position Limit</span>
+                    <span className="text-sm font-mono font-bold text-emerald-400">
+                      {riskSettings.pos_size_limit_value} {riskSettings.pos_size_limit_type === 'percentage' ? '%' : 'USDT'}
+                    </span>
+                  </div>
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Max Daily Loss</span>
+                    <span className="text-sm font-mono font-bold text-emerald-400">{riskSettings.max_daily_loss}%</span>
+                  </div>
+                </div>
+             </div>
+
+             {/* Interserver.net VPS Deployment Guide */}
+             <div className="bg-[#111] border border-white/5 rounded-3xl p-8 space-y-6">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <Globe className="text-emerald-500 w-5 h-5" /> VPS Host (Interserver.net)
+                  </h3>
+                  <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">HOSTED ENGINE</div>
+                </div>
+                
+                <p className="text-zinc-500 text-xs leading-relaxed">
+                  Deploy your Aegis 2.0X trading terminal and backend engine to <span className="text-white font-semibold">Interserver.net</span> for high-speed, 24/7/365 uninterrupted low-latency executions on perpetual markets.
+                </p>
+
+                <div className="space-y-4">
+                  <div className="p-4 bg-zinc-950 border border-white/5 rounded-2xl">
+                     <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-2">Automated VPS Installer (Recommended)</span>
+                     <p className="text-[11px] text-zinc-400 mb-4 leading-relaxed">
+                       SSH into your Interserver.net Linux VPS (Ubuntu 22.04 LTS recommended) and paste the following command to automatically install all dependencies (Node.js, Python, CCXT, SQLite), sync your repo, and run Aegis in the background as a system daemon:
+                     </p>
+                     
+                     <div className="flex bg-black p-3 rounded-xl border border-white/5 items-center justify-between font-mono text-xs text-emerald-400 overflow-x-auto gap-4">
+                        <code className="whitespace-nowrap select-all">curl -sSL {window.location.origin}/api/deploy-script | bash</code>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(`curl -sSL ${window.location.origin}/api/deploy-script | bash`);
+                            addNotification('success', 'VPS Deployment Script Command Copied!');
+                          }}
+                          className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black rounded-lg uppercase tracking-widest flex-shrink-0"
+                        >
+                          COPY
+                        </button>
+                     </div>
+                  </div>
+
+                  <div className="p-5 bg-white/5 border border-white/10 rounded-2xl">
+                    <h4 className="text-xs font-bold uppercase mb-3 text-zinc-300">Step-by-Step Manual Setup:</h4>
+                    <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2 leading-relaxed">
+                      <li>Log in to your <span className="text-white">Interserver.net</span> control panel and create a new virtual private server.</li>
+                      <li>SSH into the server: <code className="text-emerald-400 font-mono">ssh root@YOUR_VPS_IP</code></li>
+                      <li>Install Node.js & Python: <code className="text-emerald-400 font-mono">sudo apt update && sudo apt install -y git nodejs npm python3 python3-pip sqlite3</code></li>
+                      <li>Clone and set up your project folder on the server.</li>
+                      <li>Run <code className="text-emerald-400 font-mono">npm run build</code> and launch the service 24/7 with PM2.</li>
+                    </ol>
+                  </div>
+                </div>
+             </div>
           </div>
         )}
       </main>
@@ -1602,6 +1726,34 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* Telegram Notifications Link */}
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <div className="flex items-center gap-3 mb-2">
+                     <div className="w-6 h-6 rounded bg-[#24A1DE] flex items-center justify-center text-[10px] font-black text-white">TG</div>
+                     <h3 className="font-bold text-xs uppercase tracking-widest text-zinc-400">Telegram Notification System</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Bot Token</label>
+                      <input 
+                        type="password"
+                        placeholder={exchangeKeys.telegram_bot_token ? "••••••••••••" : "Enter Bot Token"}
+                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, telegram_bot_token: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-zinc-300 focus:border-zinc-500/40 outline-none transition-all placeholder:text-zinc-800"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Chat ID</label>
+                      <input 
+                        type="text"
+                        placeholder={exchangeKeys.telegram_chat_id || "Enter Chat ID"}
+                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, telegram_chat_id: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-zinc-300 focus:border-zinc-500/40 outline-none transition-all placeholder:text-zinc-800"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="p-8 bg-emerald-600/5 flex flex-col md:flex-row items-center justify-between border-t border-white/5 gap-6">
@@ -1635,6 +1787,170 @@ export default function App() {
                   className="w-full md:w-auto px-10 py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-2xl shadow-emerald-600/20 active:scale-95 transition-all"
                 >
                   DEPLOY TO ENGINE
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Risk Management Modal */}
+      <AnimatePresence>
+        {showRiskManager && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-emerald-600/5">
+                <div>
+                  <h2 className="text-xl font-black tracking-tight flex items-center gap-3">
+                    <ShieldAlert className="text-emerald-500" /> RISK CONTROLS
+                  </h2>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mt-1">Configure Strategic Trade Guards</p>
+                </div>
+                <button 
+                  onClick={() => setShowRiskManager(false)}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-full transition-all"
+                >
+                  <X size={20} className="text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6 overflow-y-auto max-h-[70vh]">
+                {/* Max Drawdown (MDD) */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Max Drawdown (MDD) Limit</label>
+                    <span className="text-xs font-mono font-bold text-emerald-400">{riskSettings.max_drawdown}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="1"
+                    max="50"
+                    step="0.5"
+                    value={riskSettings.max_drawdown}
+                    onChange={(e) => setRiskSettings(prev => ({ ...prev, max_drawdown: e.target.value }))}
+                    className="w-full accent-emerald-500 h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <p className="text-[9px] text-zinc-500 leading-normal uppercase">
+                    If account equity drops below this percentage from its absolute historic peak, the bot automatically stops all execution and signals Telegram.
+                  </p>
+                </div>
+
+                {/* Position Size Limit Type */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Position Sizing Limit Policy</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => setRiskSettings(prev => ({ ...prev, pos_size_limit_type: 'percentage' }))}
+                      className={cn(
+                        "py-3 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all",
+                        riskSettings.pos_size_limit_type === 'percentage' 
+                          ? "bg-emerald-600/10 text-emerald-400 border-emerald-500/20" 
+                          : "bg-white/5 text-zinc-500 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      Percentage (%)
+                    </button>
+                    <button 
+                      onClick={() => setRiskSettings(prev => ({ ...prev, pos_size_limit_type: 'absolute' }))}
+                      className={cn(
+                        "py-3 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all",
+                        riskSettings.pos_size_limit_type === 'absolute' 
+                          ? "bg-emerald-600/10 text-emerald-400 border-emerald-500/20" 
+                          : "bg-white/5 text-zinc-500 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      Absolute (USDT)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Position Size Value */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Position Size Maximum Value</label>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      step="0.1"
+                      value={riskSettings.pos_size_limit_value}
+                      onChange={(e) => setRiskSettings(prev => ({ ...prev, pos_size_limit_value: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-zinc-500">
+                      {riskSettings.pos_size_limit_type === 'percentage' ? '%' : 'USDT'}
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-zinc-500 leading-normal uppercase">
+                    Forces the strategy allocator to limit individual positions to this cap, ignoring default strategy weights.
+                  </p>
+                </div>
+
+                {/* Max Daily Loss */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Max Daily Loss Limit</label>
+                    <span className="text-xs font-mono font-bold text-emerald-400">{riskSettings.max_daily_loss}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="1"
+                    max="25"
+                    step="0.5"
+                    value={riskSettings.max_daily_loss}
+                    onChange={(e) => setRiskSettings(prev => ({ ...prev, max_daily_loss: e.target.value }))}
+                    className="w-full accent-emerald-500 h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                {/* Max Trades Per Day */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Max Autonomous Trades Per 24H</label>
+                  <input 
+                    type="number"
+                    value={riskSettings.max_trades_per_day}
+                    onChange={(e) => setRiskSettings(prev => ({ ...prev, max_trades_per_day: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-zinc-300 focus:border-emerald-500/40 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="p-8 bg-emerald-600/5 flex flex-col items-stretch border-t border-white/5 gap-4">
+                <button 
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                        body: JSON.stringify({
+                          max_drawdown: parseFloat(riskSettings.max_drawdown),
+                          pos_size_limit_type: riskSettings.pos_size_limit_type,
+                          pos_size_limit_value: parseFloat(riskSettings.pos_size_limit_value),
+                          max_daily_loss: parseFloat(riskSettings.max_daily_loss),
+                          max_trades_per_day: parseInt(riskSettings.max_trades_per_day, 10)
+                        })
+                      });
+                      if (res.ok) {
+                        addNotification('success', 'Strategic Risk Parameters committed and active in SQLite backend.');
+                        setShowRiskManager(false);
+                        syncAppData();
+                      } else {
+                        throw new Error('Save failed');
+                      }
+                    } catch (err) {
+                      addNotification('error', 'Sync Failure: Could not commit risk settings.');
+                    }
+                  }}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-black font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-lg transition-all active:scale-95"
+                >
+                  SAVE RISK PARAMETERS
                 </button>
               </div>
             </motion.div>
