@@ -53,6 +53,7 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
+import { exportLedgerPDF } from './lib/pdfExport';
 
 // Mock data for initial load
 const PERFORMANCE_DATA = [
@@ -1155,12 +1156,12 @@ export default function App() {
                     
                     <button 
                       onClick={() => {
-                        window.open(`${BASE_URL}/api/export-ledger?mode=${tradeFilter}`, '_blank');
-                        addNotification('success', `Trade ledger exported as CSV (${tradeFilter.toUpperCase()})`);
+                        exportLedgerPDF(trades, tradeFilter);
+                        addNotification('success', `Trade ledger exported as beautiful PDF (${tradeFilter.toUpperCase()})`);
                       }}
                       className="ml-2 px-4 py-1.5 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-black border border-emerald-500/10 transition-colors uppercase flex items-center gap-1.5 active:scale-95 shadow-md"
                     >
-                      <Download className="w-3.5 h-3.5" /> EXPORT CSV
+                      <Download className="w-3.5 h-3.5" /> EXPORT PDF
                     </button>
                   </div>
                </div>
