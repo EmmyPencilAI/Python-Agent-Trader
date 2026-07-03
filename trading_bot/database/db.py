@@ -5,7 +5,11 @@ from config import Config
 
 class DatabaseManager:
     def __init__(self):
-        self.conn = sqlite3.connect(Config.DATABASE_NAME, check_same_thread=False)
+        self.conn = sqlite3.connect(Config.DATABASE_NAME, timeout=30.0, check_same_thread=False)
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+        except:
+            pass
         self.create_tables()
 
     def create_tables(self):

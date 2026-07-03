@@ -453,7 +453,7 @@ export default function App() {
       }
     }, 5000);
 
-    // WebSocket connection
+    // WebSocket connection with fallback notification
     let socket: WebSocket | null = null;
     try {
       socket = new WebSocket(WS_URL);
@@ -464,14 +464,14 @@ export default function App() {
             setPrices(prev => ({ ...prev, ...msg.data }));
           }
         } catch (err) {
-          console.error('WebSocket parse error', err);
+          console.debug('WebSocket parse error', err);
         }
       };
       socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.warn('WebSocket connection status: Offline/Blocked in preview iframe. Falling back to active HTTP polling (5s interval).', error);
       };
     } catch (e) {
-      console.error("WS connect error", e);
+      console.warn("WebSocket initialization status: Stopped. Falling back to active HTTP polling.", e);
     }
 
     return () => {

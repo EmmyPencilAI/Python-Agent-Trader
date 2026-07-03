@@ -715,124 +715,135 @@ class TradingEngine:
         last_threshold_check = 0
         
         while True:
-            # Refresh state every loop to detect Web Dashboard changes
-            self._sync_state_from_db()
-            
-            # Re-init exchange if it changed in settings (id or keys)
-            keys_changed = False
             try:
-                binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
-                binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
-                bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
-                bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
-                bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
-
-                b_k = binance_key[0] if binance_key else Config.BINANCE_API_KEY
-                b_s = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
-                bg_k = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
-                bg_s = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
-                bg_p = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
-
-                if (b_k != self.current_keys.get('binance_key') or 
-                    b_s != self.current_keys.get('binance_secret') or
-                    bg_k != self.current_keys.get('bitget_key') or
-                    bg_s != self.current_keys.get('bitget_secret') or
-                    bg_p != self.current_keys.get('bitget_pwd') or
-                    self.active_exchange_id != self.current_keys.get('exch_id')):
-                    keys_changed = True
-            except:
-                pass
-
-            if not self.exchange or keys_changed:
+                # Refresh state every loop to detect Web Dashboard changes
+                self._sync_state_from_db()
+                
+                # Re-init exchange if it changed in settings (id or keys)
+                keys_changed = False
                 try:
-                    self.exchange = self._init_exchange()
-                except Exception as e:
-                    logger.error(f"Failed to initialize/switch exchange: {e}")
-                    time.sleep(10)
-                    continue
+                    binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
+                    binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
+                    bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
+                    bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
+                    bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
 
-            # Always sync balance to DB every loop if in real mode 
-            # (Dashboard expects this)
-            if self.trading_mode == "real":
-                current_bal = self.get_usdt_balance()
-                
-                # Check thresholds
-                if time.time() - last_threshold_check > Config.SCAN_INTERVAL:
-                    self.check_balance_thresholds(current_bal)
-                    last_threshold_check = time.time()
+                    b_k = binance_key[0] if binance_key else Config.BINANCE_API_KEY
+                    b_s = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
+                    bg_k = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
+                    bg_s = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
+                    bg_p = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
 
-            if self.is_running:
-                # RISK SAFEGUARDS: MDD Drawdown check before any action
-                current_bal = self.get_usdt_balance()
-                if not self.check_risk_drawdown(current_bal):
-                    continue
+                    if (b_k != self.current_keys.get('binance_key') or 
+                        b_s != self.current_keys.get('binance_secret') or
+                        bg_k != self.current_keys.get('bitget_key') or
+                        bg_s != self.current_keys.get('bitget_secret') or
+                        bg_p != self.current_keys.get('bitget_pwd') or
+                        self.active_exchange_id != self.current_keys.get('exch_id')):
+                        keys_changed = True
+                except Exception as key_err:
+                    logger.debug(f"Error checking key configuration: {key_err}")
 
-                # PRE-START VALIDATION for Real Mode
+                if not self.exchange or keys_changed:
+                    try:
+                        self.exchange = self._init_exchange()
+                    except Exception as e:
+                        logger.error(f"Failed to initialize/switch exchange: {e}")
+                        time.sleep(10)
+                        continue
+
+                # Always sync balance to DB every loop if in real mode 
+                # (Dashboard expects this)
                 if self.trading_mode == "real":
-                    try:
-                        logger.info("🛡️ Safety Check: Validating Liquidity before engine engagement...")
-                        current_bal = self.get_usdt_balance()
-                        if current_bal <= 0:
-                            # DOUBLE CHECK: wait 2 seconds and try once more to avoid transient API errors
-                            time.sleep(2)
+                    current_bal = self.get_usdt_balance()
+                    
+                    # Check thresholds
+                    if time.time() - last_threshold_check > Config.SCAN_INTERVAL:
+                        self.check_balance_thresholds(current_bal)
+                        last_threshold_check = time.time()
+
+                if self.is_running:
+                    # RISK SAFEGUARDS: MDD Drawdown check before any action
+                    current_bal = self.get_usdt_balance()
+                    if not self.check_risk_drawdown(current_bal):
+                        time.sleep(Config.SCAN_INTERVAL)
+                        continue
+
+                    # PRE-START VALIDATION for Real Mode
+                    if self.trading_mode == "real":
+                        try:
+                            logger.info("🛡️ Safety Check: Validating Liquidity before engine engagement...")
                             current_bal = self.get_usdt_balance()
-                            
-                        if current_bal <= 0:
-                            if self.disable_safety_stops:
-                                logger.warning("⚠️ Aegis Safety Protocol: Real Mode detected $0.00 balance, but safety stops are DISABLED. Continuing execution...")
-                            else:
-                                logger.error("🛑 Aegis Safety Protocol: Real Mode detected $0.00 balance. Stopping engine.")
-                                self.db.set_bot_state('running', 'stopped')
-                                self.is_running = False
+                            if current_bal <= 0:
+                                # DOUBLE CHECK: wait 2 seconds and try once more to avoid transient API errors
+                                time.sleep(2)
+                                current_bal = self.get_usdt_balance()
                                 
-                                # Ensure Telegram sends
-                                msg = "⚠️ *AEGIS SECURITY TRIGGER*\nReal Trading Mode was started but no USDT balance was found in your Bitget account.\n\n*Action Taken*: Engine Stopped.\n*Check*: API Key (Read/Trade permissions) or Fund location (Spot/Unified/Funding)."
-                                TelegramManager.send_message(msg)
+                            if current_bal <= 0:
+                                if self.disable_safety_stops:
+                                    logger.warning("⚠️ Aegis Safety Protocol: Real Mode detected $0.00 balance, but safety stops are DISABLED. Continuing execution...")
+                                else:
+                                    logger.warning("⚠️ Aegis Safety Protocol: Real Mode detected $0.00 balance. Pausing active trading scanning until liquidity is restored...")
+                                    # INSTEAD of stopping the engine permanently and writing 'stopped' to the database,
+                                    # we log a warning and continue to next loop iteration. This ensures the bot NEVER stops or turns off automatically
+                                    # when the user has funds in their Bitget spot account but encounters temporary API/connection issues.
+                                    time.sleep(Config.SCAN_INTERVAL)
+                                    continue
+                            else:
+                                logger.info(f"✅ Pre-start validation passed. Liquidity: ${current_bal:.2f}")
+                        except Exception as e:
+                            logger.error(f"Safety balance check failed: {e}")
+                            if not self.disable_safety_stops:
+                                time.sleep(Config.SCAN_INTERVAL)
                                 continue
-                        else:
-                            logger.info(f"✅ Pre-start validation passed. Liquidity: ${current_bal:.2f}")
-                    except Exception as e:
-                        logger.error(f"Safety balance check failed: {e}")
-                        if not self.disable_safety_stops:
-                            self.is_running = False
-                            continue
+                    
+                    # Periodic balance history recording (every ~10 scans)
+                    if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
+                        bal_to_record = self.get_usdt_balance()
+                        logger.info(f"❤️ HEARTBEAT | Mode: {self.trading_mode.upper()} | Balance: ${bal_to_record:.2f} | Live: {self.is_running}")
+                        try:
+                            self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
+                            self.db.conn.commit()
+                        except Exception as db_err:
+                            logger.error(f"Failed to record balance heartbeat: {db_err}")
+                        last_balance_record = time.time()
+
+                    # Position Monitoring
+                    self.monitor_positions()
+
+                    for symbol in Config.SYMBOLS:
+                        try:
+                            logger.info(f"🔍 Scanning {symbol} on {self.exchange.id} ({self.trading_mode.upper()})...")
+                            df = self.get_market_data(symbol)
+                            if df.empty: 
+                                logger.warning(f"⚠️ No market data for {symbol}. Skipping.")
+                                continue
+                            
+                            signal = self.strategies[self.current_strategy].generate_signal(df)
+                            # Log technicals for debugging
+                            last = df.iloc[-1]
+                            logger.debug(f"📊 {symbol} Technicals | RSI: {last.get('rsi',0):.2f} | MACD: {last.get('macd',0):.4f} | Price: {last['close']}")
+                            
+                            if signal['action'] == "HOLD":
+                                continue
+                            
+                            signal['symbol'] = symbol
+                            signal['entry'] = df.iloc[-1]['close']
+                            self.execute_trade(symbol, signal)
+                        except Exception as e:
+                            logger.error(f"Error processing {symbol}: {e}")
+                else:
+                    logger.debug("Bot is idle (stopped via dashboard)")
                 
-                # Periodic balance history recording (every ~10 scans)
-                if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):
-                    bal_to_record = self.get_usdt_balance()
-                    logger.info(f"❤️ HEARTBEAT | Mode: {self.trading_mode.upper()} | Balance: ${bal_to_record:.2f} | Live: {self.is_running}")
-                    self.db.conn.execute("INSERT INTO balance_history (mode, balance) VALUES (?, ?)", (self.trading_mode, bal_to_record))
-                    self.db.conn.commit()
-                    last_balance_record = time.time()
+                time.sleep(Config.SCAN_INTERVAL)
 
-                # Position Monitoring
-                self.monitor_positions()
-
-                for symbol in Config.SYMBOLS:
-                    try:
-                        logger.info(f"🔍 Scanning {symbol} on {self.exchange.id} ({self.trading_mode.upper()})...")
-                        df = self.get_market_data(symbol)
-                        if df.empty: 
-                            logger.warning(f"⚠️ No market data for {symbol}. Skipping.")
-                            continue
-                        
-                        signal = self.strategies[self.current_strategy].generate_signal(df)
-                        # Log technicals for debugging
-                        last = df.iloc[-1]
-                        logger.debug(f"📊 {symbol} Technicals | RSI: {last.get('rsi',0):.2f} | MACD: {last.get('macd',0):.4f} | Price: {last['close']}")
-                        
-                        if signal['action'] == "HOLD":
-                            continue
-                        
-                        signal['symbol'] = symbol
-                        signal['entry'] = df.iloc[-1]['close']
-                        self.execute_trade(symbol, signal)
-                    except Exception as e:
-                        logger.error(f"Error processing {symbol}: {e}")
-            else:
-                logger.debug("Bot is idle (stopped via dashboard)")
-            
-            time.sleep(Config.SCAN_INTERVAL)
+            except Exception as loop_err:
+                logger.error(f"⚠️ CRITICAL ENGINE LOOP EXCEPTION: {loop_err}")
+                try:
+                    self.db.conn.rollback()
+                except Exception:
+                    pass
+                time.sleep(10) # Quick sleep to avoid hot error loop
 
 if __name__ == "__main__":
     engine = TradingEngine()

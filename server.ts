@@ -8,14 +8,36 @@ import Database from 'better-sqlite3';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { spawn } from 'child_process';
+import fs from 'fs';
 
 dotenv.config();
 
-const db = new Database('database.sqlite');
+const db = new Database('database.sqlite', { timeout: 30000 });
+db.pragma('journal_mode = WAL');
+
 let pythonProcess: any = null;
 let botStartTime: number | null = null;
 
 function managePythonBot(action: string) {
+  // Determine Python binary based on local virtual environment (vital for Interserver VPS)
+  let pythonBinary = 'python3';
+  const venvPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+  const venvPathAlt = path.join(process.cwd(), 'venv', 'bin', 'python');
+  const venvWinPath = path.join(process.cwd(), 'venv', 'Scripts', 'python.exe');
+  
+  if (fs.existsSync(venvPath)) {
+    pythonBinary = venvPath;
+    console.log(`[AEGIS] Using local venv Python binary: ${pythonBinary}`);
+  } else if (fs.existsSync(venvPathAlt)) {
+    pythonBinary = venvPathAlt;
+    console.log(`[AEGIS] Using local venv Python binary: ${pythonBinary}`);
+  } else if (fs.existsSync(venvWinPath)) {
+    pythonBinary = venvWinPath;
+    console.log(`[AEGIS] Using local venv Windows Python binary: ${pythonBinary}`);
+  } else {
+    console.log('[AEGIS] No local venv found. Falling back to global system python3.');
+  }
+
   if (action === 'running') {
     if (pythonProcess) return;
     botStartTime = Date.now();
@@ -23,7 +45,6 @@ function managePythonBot(action: string) {
     
     const startBot = () => {
       const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
-      const pythonBinary = 'python3';
       
       pythonProcess = spawn(pythonBinary, [pythonPath], {
         stdio: ['inherit', 'inherit', 'pipe'],
@@ -54,12 +75,19 @@ function managePythonBot(action: string) {
       // Step: Ensure pandas is installed (Fixes ModuleNotFoundError)
       // This is helpful in environments where build steps might be skipped or for local/preview
       console.log('[AEGIS] Verifying Python dependencies (pandas)...');
-      const checkDeps = spawn('python3', ['-c', 'import pandas; print(pandas.__version__)']);
+      const checkDeps = spawn(pythonBinary, ['-c', 'import pandas; print(pandas.__version__)']);
       
       checkDeps.on('close', (code) => {
         if (code !== 0) {
           console.log('[AEGIS] pandas not found. Attempting to install...');
-          const install = spawn('pip3', ['install', 'pandas', 'numpy', 'ccxt', 'python-binance', 'python-dotenv']);
+          // Use the appropriate pip binary if we are inside a virtual environment
+          let pipBinary = 'pip3';
+          const venvPip = path.join(process.cwd(), 'venv', 'bin', 'pip');
+          const venvPip3 = path.join(process.cwd(), 'venv', 'bin', 'pip3');
+          if (fs.existsSync(venvPip)) pipBinary = venvPip;
+          else if (fs.existsSync(venvPip3)) pipBinary = venvPip3;
+
+          const install = spawn(pipBinary, ['install', 'pandas', 'numpy', 'ccxt', 'python-binance', 'python-dotenv']);
           install.on('close', (installCode) => {
             if (installCode === 0) {
               console.log('[AEGIS] Dependencies installed successfully.');
