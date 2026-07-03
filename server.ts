@@ -326,7 +326,8 @@ async function startServer() {
         bitget_secret_key: state.bitget_secret_key || ((process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY) ? '********' : ''),
         bitget_passphrase: state.bitget_passphrase || (process.env.BITGET_PASSPHRASE ? '********' : ''),
         telegram_bot_token: state.telegram_bot_token || (process.env.TELEGRAM_BOT_TOKEN ? '********' : ''),
-        telegram_chat_id: state.telegram_chat_id || (process.env.TELEGRAM_CHAT_ID ? '********' : '')
+        telegram_chat_id: state.telegram_chat_id || (process.env.TELEGRAM_CHAT_ID ? '********' : ''),
+        disable_safety_stops: state.disable_safety_stops || 'false'
       });
     } catch (err) {
       console.error('API Status Error:', err);
@@ -360,7 +361,7 @@ async function startServer() {
         'bitget_api_key', 'bitget_secret_key', 'bitget_passphrase',
         'telegram_bot_token', 'telegram_chat_id',
         'max_drawdown', 'pos_size_limit_type', 'pos_size_limit_value',
-        'max_daily_loss', 'max_trades_per_day'
+        'max_daily_loss', 'max_trades_per_day', 'disable_safety_stops'
       ];
 
       fields.forEach(field => {

@@ -45,6 +45,7 @@ class TradingEngine:
             self.pos_size_limit_value = float(state.get('pos_size_limit_value', 2.0))
             self.max_daily_loss = float(state.get('max_daily_loss', 5.0))
             self.max_trades_per_day = int(state.get('max_trades_per_day', 100))
+            self.disable_safety_stops = state.get('disable_safety_stops', 'false') == 'true'
         except Exception as e:
             logger.error(f"Sync error: {e}")
 
@@ -579,6 +580,8 @@ class TradingEngine:
             logger.error(f"Error checking balance thresholds: {e}")
 
     def check_risk_drawdown(self, balance):
+        if self.disable_safety_stops:
+            return True
         if balance <= 0:
             return True
         try:
@@ -775,20 +778,24 @@ class TradingEngine:
                             current_bal = self.get_usdt_balance()
                             
                         if current_bal <= 0:
-                            logger.error("🛑 Aegis Safety Protocol: Real Mode detected $0.00 balance. Stopping engine.")
-                            self.db.set_bot_state('running', 'stopped')
-                            self.is_running = False
-                            
-                            # Ensure Telegram sends
-                            msg = "⚠️ *AEGIS SECURITY TRIGGER*\nReal Trading Mode was started but no USDT balance was found in your Bitget account.\n\n*Action Taken*: Engine Stopped.\n*Check*: API Key (Read/Trade permissions) or Fund location (Spot/Unified/Funding)."
-                            TelegramManager.send_message(msg)
-                            continue
+                            if self.disable_safety_stops:
+                                logger.warning("⚠️ Aegis Safety Protocol: Real Mode detected $0.00 balance, but safety stops are DISABLED. Continuing execution...")
+                            else:
+                                logger.error("🛑 Aegis Safety Protocol: Real Mode detected $0.00 balance. Stopping engine.")
+                                self.db.set_bot_state('running', 'stopped')
+                                self.is_running = False
+                                
+                                # Ensure Telegram sends
+                                msg = "⚠️ *AEGIS SECURITY TRIGGER*\nReal Trading Mode was started but no USDT balance was found in your Bitget account.\n\n*Action Taken*: Engine Stopped.\n*Check*: API Key (Read/Trade permissions) or Fund location (Spot/Unified/Funding)."
+                                TelegramManager.send_message(msg)
+                                continue
                         else:
                             logger.info(f"✅ Pre-start validation passed. Liquidity: ${current_bal:.2f}")
                     except Exception as e:
                         logger.error(f"Safety balance check failed: {e}")
-                        self.is_running = False
-                        continue
+                        if not self.disable_safety_stops:
+                            self.is_running = False
+                            continue
                 
                 # Periodic balance history recording (every ~10 scans)
                 if time.time() - last_balance_record > (Config.SCAN_INTERVAL * 10):

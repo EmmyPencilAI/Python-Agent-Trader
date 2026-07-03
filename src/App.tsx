@@ -251,7 +251,8 @@ export default function App() {
     pos_size_limit_type: 'percentage',
     pos_size_limit_value: '2.0',
     max_daily_loss: '5.0',
-    max_trades_per_day: '100'
+    max_trades_per_day: '100',
+    disable_safety_stops: 'false'
   });
   
   // API Keys and External Config
@@ -394,7 +395,8 @@ export default function App() {
           pos_size_limit_type: statusData.pos_size_limit_type || 'percentage',
           pos_size_limit_value: statusData.pos_size_limit_value || '2.0',
           max_daily_loss: statusData.max_daily_loss || '5.0',
-          max_trades_per_day: statusData.max_trades_per_day || '100'
+          max_trades_per_day: statusData.max_trades_per_day || '100',
+          disable_safety_stops: statusData.disable_safety_stops || 'false'
         });
 
         // Fetch history
@@ -1570,7 +1572,7 @@ export default function App() {
                   Define maximum allowable drawdown thresholds, position scaling limits, and active trading guards to secure portfolio liquidity across high-frequency execution cycles.
                 </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
                     <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Max Drawdown (MDD)</span>
                     <span className="text-sm font-mono font-bold text-emerald-400">{riskSettings.max_drawdown}%</span>
@@ -1584,6 +1586,15 @@ export default function App() {
                   <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
                     <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Max Daily Loss</span>
                     <span className="text-sm font-mono font-bold text-emerald-400">{riskSettings.max_daily_loss}%</span>
+                  </div>
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Continuous Loop</span>
+                    <span className={cn(
+                      "text-sm font-mono font-bold",
+                      riskSettings.disable_safety_stops === 'true' ? "text-rose-400" : "text-emerald-400"
+                    )}>
+                      {riskSettings.disable_safety_stops === 'true' ? "UNLIMITED" : "SAFEGUARDED"}
+                    </span>
                   </div>
                 </div>
              </div>
@@ -2007,6 +2018,33 @@ export default function App() {
                     className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-zinc-300 focus:border-emerald-500/40 outline-none transition-all"
                   />
                 </div>
+
+                {/* Continuous Trading Mode Toggle */}
+                <div className="space-y-3 pt-4 border-t border-white/5">
+                  <div className="flex justify-between items-center gap-4">
+                    <div className="flex-1">
+                      <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-sans">Disable Risk Safety Stops (24/7 Loop)</label>
+                      <p className="text-[9px] text-zinc-500 leading-normal uppercase mt-1">
+                        Permit continuous running 24/7/365. Completely bypasses maximum drawdown halts and zero balance checks.
+                      </p>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setRiskSettings(prev => ({ 
+                        ...prev, 
+                        disable_safety_stops: prev.disable_safety_stops === 'true' ? 'false' : 'true' 
+                      }))}
+                      className={cn(
+                        "px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[150px] text-center",
+                        riskSettings.disable_safety_stops === 'true'
+                          ? "bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(239,68,68,0.1)]"
+                          : "bg-white/5 text-zinc-400 border-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      {riskSettings.disable_safety_stops === 'true' ? 'UNLIMITED LOOP' : 'SAFETY INTACT'}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="p-8 bg-emerald-600/5 flex flex-col items-stretch border-t border-white/5 gap-4">
@@ -2021,7 +2059,8 @@ export default function App() {
                           pos_size_limit_type: riskSettings.pos_size_limit_type,
                           pos_size_limit_value: parseFloat(riskSettings.pos_size_limit_value),
                           max_daily_loss: parseFloat(riskSettings.max_daily_loss),
-                          max_trades_per_day: parseInt(riskSettings.max_trades_per_day, 10)
+                          max_trades_per_day: parseInt(riskSettings.max_trades_per_day, 10),
+                          disable_safety_stops: riskSettings.disable_safety_stops
                         })
                       });
                       if (res.ok) {
