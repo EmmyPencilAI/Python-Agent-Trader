@@ -2020,12 +2020,12 @@ export default function App() {
                 </div>
 
                 {/* Continuous Trading Mode Toggle */}
-                <div className="space-y-3 pt-4 border-t border-white/5">
+                <div className="space-y-4 pt-4 border-t border-white/5">
                   <div className="flex justify-between items-center gap-4">
                     <div className="flex-1">
-                      <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-sans">Disable Risk Safety Stops (24/7 Loop)</label>
+                      <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-sans">Continuous Trading (24/7/365 Mode)</label>
                       <p className="text-[9px] text-zinc-500 leading-normal uppercase mt-1">
-                        Permit continuous running 24/7/365. Completely bypasses maximum drawdown halts and zero balance checks.
+                        Control how the engine behaves when running continuously on your VPS while you are asleep.
                       </p>
                     </div>
                     <button 
@@ -2035,15 +2035,72 @@ export default function App() {
                         disable_safety_stops: prev.disable_safety_stops === 'true' ? 'false' : 'true' 
                       }))}
                       className={cn(
-                        "px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[150px] text-center",
+                        "px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-300 min-w-[170px] text-center cursor-pointer",
                         riskSettings.disable_safety_stops === 'true'
-                          ? "bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(239,68,68,0.1)]"
-                          : "bg-white/5 text-zinc-400 border-white/5 hover:bg-white/10"
+                          ? "bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
                       )}
                     >
-                      {riskSettings.disable_safety_stops === 'true' ? 'UNLIMITED LOOP' : 'SAFETY INTACT'}
+                      {riskSettings.disable_safety_stops === 'true' ? '⚠️ UNLIMITED LOOP' : '🛡️ SAFETY ENFORCED'}
                     </button>
                   </div>
+
+                  {/* Real-time Dynamic Capability explainer */}
+                  {riskSettings.disable_safety_stops === 'true' ? (
+                    <div className="p-4 bg-rose-950/20 border border-rose-500/10 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-2 text-rose-400 font-bold text-xs uppercase tracking-wider">
+                        <AlertTriangle size={14} className="animate-pulse" />
+                        Active Capabilities: Continuous Execution (Safety Stops Disabled)
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        With this mode active, Aegis is configured for <span className="text-white font-semibold">unconditional high-availability trading</span>. It will execute continuously without stopping:
+                      </p>
+                      <ul className="grid grid-cols-1 gap-2 pl-1">
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-rose-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-rose-300">Continuous 24/7/365 Loop:</strong> The engine stays online permanently. It will run through the night and won't halt when you sleep or log out of the browser.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-rose-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-rose-300">Bypasses Zero-Balance Halts:</strong> Continues polling the exchange even if temporary network lags or local API issues show $0.00 wallet balances, ensuring the daemon stays awake.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-rose-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-rose-300">Overrides Maximum Drawdown Checks:</strong> Your Max Drawdown and Max Daily Loss settings are used as warnings but will NOT force-stop the system, giving you fully un-interrupted market execution.</span>
+                        </li>
+                      </ul>
+                      <div className="text-[9px] text-rose-400/80 font-mono uppercase bg-rose-500/5 p-2 rounded-lg border border-rose-500/5">
+                        💡 PRO-TIP: Perfect for Interserver VPS users who want to run the bot 24/7 without being interrupted by temporary network errors or wallet balance checks.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-emerald-950/10 border border-emerald-500/10 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                        <ShieldCheck size={14} />
+                        Active Capabilities: Safeguarded Execution (Safety Stops Enabled)
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        With this mode active, Aegis enforces <span className="text-white font-semibold">strict protective constraints</span>. The engine is programmed to halt if any hazard is detected:
+                      </p>
+                      <ul className="grid grid-cols-1 gap-2 pl-1">
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-emerald-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-emerald-300">Auto-Halt on Zero Balance:</strong> If the API reports a $0.00 USDT balance, the engine immediately shuts down and stops execution to prevent API error flooding.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-emerald-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-emerald-300">Strict Drawdown Hard-Stop:</strong> Instantly shuts down the engine and clears open orders if your portfolio drawdown crosses the configured Max Drawdown (MDD) threshold.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-[10px] text-zinc-400">
+                          <span className="text-emerald-400 font-bold mt-0.5">•</span>
+                          <span><strong className="text-emerald-300">24H Trades Limit Enforcement:</strong> Halts further trade execution for the day once your Max Autonomous Trades count is reached.</span>
+                        </li>
+                      </ul>
+                      <div className="text-[9px] text-emerald-400/80 font-mono uppercase bg-emerald-500/5 p-2 rounded-lg border border-emerald-500/5">
+                        🛡️ RECOMMENDED: Keeps protective buffers active to safeguard capital, but will stop the bot if threshold limits are exceeded.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
