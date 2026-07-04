@@ -4,14 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-    BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
-    
     BITGET_API_KEY = os.getenv("BITGET_API_KEY")
     BITGET_API_SECRET = os.getenv("BITGET_API_SECRET") or os.getenv("BITGET_SECRET_KEY")
     BITGET_PASSPHRASE = os.getenv("BITGET_PASSPHRASE")
 
-    ACTIVE_EXCHANGE = os.getenv("ACTIVE_EXCHANGE", "bitget").lower() # 'binance' or 'bitget'
+    ACTIVE_EXCHANGE = "bitget" # Enforced only Bitget
     TRADING_MODE = os.getenv("TRADING_MODE", "paper").lower() # 'real' or 'paper'
     PAPER_BALANCE = float(os.getenv("PAPER_BALANCE", "1000.0"))
     

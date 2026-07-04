@@ -290,25 +290,6 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // Health check
-  app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
-      bot_alive: pythonProcess !== null,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  app.get('/api/history', async (req, res) => {
-    try {
-      const mode = req.query.mode || 'paper';
-      const history = db.prepare('SELECT balance, timestamp FROM balance_history WHERE mode = ? ORDER BY timestamp ASC LIMIT 500').all(mode);
-      res.json(history);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch history' });
-    }
-  });
-
   // API Middleware
   const apiKeyGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const apiKey = req.headers['x-api-key'];
@@ -321,8 +302,32 @@ async function startServer() {
     next();
   };
 
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      bot_alive: pythonProcess !== null,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Public endpoint for the front-end to sync the API key
+  app.get('/api/get-auth-token', (req, res) => {
+    res.json({ key: process.env.API_SECRET_KEY || 'Cybunk2.0X' });
+  });
+
+  app.get('/api/history', apiKeyGuard, async (req, res) => {
+    try {
+      const mode = req.query.mode || 'paper';
+      const history = db.prepare('SELECT balance, timestamp FROM balance_history WHERE mode = ? ORDER BY timestamp ASC LIMIT 500').all(mode);
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch history' });
+    }
+  });
+
   // API Routes
-  app.get('/api/status', async (req, res) => {
+  app.get('/api/status', apiKeyGuard, async (req, res) => {
     try {
       const stateRows = db.prepare('SELECT key, value FROM bot_state').all();
       const state: any = {};
@@ -331,7 +336,7 @@ async function startServer() {
       const config = db.prepare("SELECT * FROM strategy_config WHERE strategy_id = 'default'").get();
 
       // Logic: Fetch the correct balance from the DB (synced by Python engine)
-      const exchange = state.exchange || 'binance';
+      const exchange = 'bitget';
       const realBalance = await getAccountBalance(db, 'real');
       const paperBalance = await getAccountBalance(db, 'paper');
       const initialReal = db.prepare("SELECT value FROM bot_state WHERE key = 'initial_real_balance'").get() as any;
@@ -357,8 +362,6 @@ async function startServer() {
         algo_settings: config,
         session_start: state.session_start || new Date().toISOString(),
         uptime: uptime,
-        binance_api_key: state.binance_api_key || (process.env.BINANCE_API_KEY ? '******** (System Env)' : ''),
-        binance_secret_key: state.binance_secret_key || (process.env.BINANCE_SECRET_KEY ? '********' : ''),
         bitget_api_key: state.bitget_api_key || (process.env.BITGET_API_KEY ? '******** (System Env)' : ''),
         bitget_secret_key: state.bitget_secret_key || ((process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY) ? '********' : ''),
         bitget_passphrase: state.bitget_passphrase || (process.env.BITGET_PASSPHRASE ? '********' : ''),
@@ -394,7 +397,6 @@ async function startServer() {
       const updates: [string, any][] = [];
       const fields = [
         'mode', 'exchange', 'paper_balance', 
-        'binance_api_key', 'binance_secret_key',
         'bitget_api_key', 'bitget_secret_key', 'bitget_passphrase',
         'telegram_bot_token', 'telegram_chat_id',
         'max_drawdown', 'pos_size_limit_type', 'pos_size_limit_value',
@@ -456,7 +458,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/system-diagnostics', (req, res) => {
+  app.get('/api/system-diagnostics', apiKeyGuard, (req, res) => {
     try {
       const memoryUsage = process.memoryUsage();
       const uptimeSeconds = process.uptime();
@@ -571,7 +573,7 @@ echo "======================================================================"
 `);
   });
 
-  app.get('/api/trades', (req, res) => {
+  app.get('/api/trades', apiKeyGuard, (req, res) => {
     try {
       const mode = req.query.mode;
       let query = 'SELECT * FROM trades';

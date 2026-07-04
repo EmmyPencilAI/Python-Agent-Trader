@@ -81,7 +81,34 @@ interface Trade {
 }
 
 // Configuration Constants
-const BASE_URL = import.meta.env.VITE_API_URL || '';
+let BASE_URL = import.meta.env.VITE_API_URL || '';
+
+async function apiFetch(urlPath: string, options?: RequestInit): Promise<Response> {
+  const fullUrl = urlPath.startsWith('http') ? urlPath : `${BASE_URL}${urlPath}`;
+  const apiKey = localStorage.getItem('aegis_api_key') || 'Cybunk2.0X';
+  
+  const headers = new Headers(options?.headers);
+  if (apiKey && !headers.has('x-api-key')) {
+    headers.set('x-api-key', apiKey);
+  }
+  
+  const finalOptions = {
+    ...options,
+    headers
+  };
+  
+  try {
+    return await fetch(fullUrl, finalOptions);
+  } catch (err) {
+    if (BASE_URL !== '') {
+      console.warn(`Fetch to ${fullUrl} failed. Falling back to relative same-origin fetch.`);
+      BASE_URL = '';
+      return await fetch(urlPath, finalOptions);
+    }
+    throw err;
+  }
+}
+
 const WS_URL = BASE_URL 
   ? BASE_URL.replace(/^http/, 'ws') 
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -125,7 +152,7 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
 
     const fetchKlines = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/market/klines?symbol=${symbol}`);
+        const res = await apiFetch(`/api/market/klines?symbol=${symbol}`);
         if (res.ok) {
           const data: any[] = await res.json();
           if (!Array.isArray(data)) return;
@@ -188,7 +215,10 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
 
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'trades' | 'strategies' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'trades' | 'strategies' | 'settings'>(() => {
+    const saved = localStorage.getItem('aegis_active_tab');
+    return (saved as any) || 'dashboard';
+  });
   const [isBotRunning, setIsBotRunning] = useState(false);
   const [tradingMode, setTradingMode] = useState<'real' | 'paper'>('paper');
   const [activeExchange, setActiveExchange] = useState('bitget');
@@ -199,7 +229,18 @@ export default function App() {
   const [sessionStart, setSessionStart] = useState<string | null>(null);
   const [missionDuration, setMissionDuration] = useState('00:00:00');
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [tradeFilter, setTradeFilter] = useState<'all' | 'real'>('all');
+  const [tradeFilter, setTradeFilter] = useState<'all' | 'real'>(() => {
+    const saved = localStorage.getItem('aegis_trade_filter');
+    return (saved as any) || 'all';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('aegis_active_tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    localStorage.setItem('aegis_trade_filter', tradeFilter);
+  }, [tradeFilter]);
   const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 61240.50, ETHUSDT: 3350.20, SOLUSDT: 138.45, BNBUSDT: 565.10 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [performance, setPerformance] = useState({ total_trades: 0, wins: 0, total_pnl: 0 });
@@ -238,7 +279,8 @@ export default function App() {
   }, [sessionStart, isBotRunning]);
   const [notifications, setNotifications] = useState<{id: string, type: 'error' | 'success' | 'info', msg: string}[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
-  const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || '');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || 'Cybunk2.0X');
+  const [authSynced, setAuthSynced] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
   const [serverIp, setServerIp] = useState<string>('');
@@ -258,8 +300,6 @@ export default function App() {
   // API Keys and External Config
   const [showKeyManager, setShowKeyManager] = useState(false);
   const [exchangeKeys, setExchangeKeys] = useState({
-    binance_api_key: '',
-    binance_secret_key: '',
     bitget_api_key: '',
     bitget_secret_key: '',
     bitget_passphrase: '',
@@ -296,7 +336,7 @@ export default function App() {
 
   const fetchTrades = async () => {
     try {
-      const res = await fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`);
+      const res = await apiFetch(`/api/trades?mode=${tradeFilter}`);
       if (!res.ok) {
         const text = await res.text();
         console.error(`Trades fetch failed (${res.status}):`, text.substring(0, 50));
@@ -317,7 +357,7 @@ export default function App() {
 
   const fetchPerformance = async () => {
     try {
-      const res = await fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`);
+      const res = await apiFetch(`/api/performance?mode=${tradeFilter}`);
       if (res.ok) {
         const contentType = res.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
@@ -333,10 +373,10 @@ export default function App() {
   const syncAppData = async () => {
     try {
       const [statusRes, tradesRes, pricesRes, perfRes] = await Promise.all([
-        fetch(`${BASE_URL}/api/status`).catch(() => null),
-        fetch(`${BASE_URL}/api/trades?mode=${tradeFilter}`).catch(() => null),
-        fetch(`${BASE_URL}/api/market/prices`).catch(() => null),
-        fetch(`${BASE_URL}/api/performance?mode=${tradeFilter}`).catch(() => null)
+        apiFetch(`/api/status`).catch(() => null),
+        apiFetch(`/api/trades?mode=${tradeFilter}`).catch(() => null),
+        apiFetch(`/api/market/prices`).catch(() => null),
+        apiFetch(`/api/performance?mode=${tradeFilter}`).catch(() => null)
       ]);
       
       const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
@@ -366,7 +406,7 @@ export default function App() {
       if (statusData) {
         setIsBotRunning(statusData.status === 'running');
         setTradingMode(statusData.mode || 'paper');
-        setActiveExchange(statusData.exchange || 'binance');
+        setActiveExchange('bitget');
         setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
         setBalance(parseFloat(String(statusData.real_balance || '0')));
         setStatus(statusData);
@@ -381,8 +421,6 @@ export default function App() {
         // Sync existing keys from server (non-secret parts)
         setExchangeKeys(prev => ({
           ...prev,
-          binance_api_key: statusData.binance_api_key || '',
-          binance_secret_key: statusData.binance_secret_key || '',
           bitget_api_key: statusData.bitget_api_key || '',
           bitget_secret_key: statusData.bitget_secret_key || '',
           bitget_passphrase: statusData.bitget_passphrase || '',
@@ -401,7 +439,7 @@ export default function App() {
 
         // Fetch history
         try {
-          const historyRes = await fetch(`${BASE_URL}/api/history?mode=${statusData.mode || 'paper'}`);
+          const historyRes = await apiFetch(`/api/history?mode=${statusData.mode || 'paper'}`);
           if (historyRes && historyRes.ok) {
             const contentType = historyRes.headers.get("content-type");
             if (contentType && contentType.includes("application/json")) {
@@ -419,13 +457,13 @@ export default function App() {
         setPrices(prev => ({ ...prev, ...pricesData }));
       }
 
-      const ipRes = await fetch(`${BASE_URL}/api/server-ip`).catch(() => null);
+      const ipRes = await apiFetch(`/api/server-ip`).catch(() => null);
       if (ipRes && ipRes.ok) {
          const ipData = await ipRes.json();
          setServerIp(ipData.ip);
       }
 
-      const diagRes = await fetch(`${BASE_URL}/api/system-diagnostics`).catch(() => null);
+      const diagRes = await apiFetch(`/api/system-diagnostics`).catch(() => null);
       if (diagRes && diagRes.ok) {
          const diagData = await diagRes.json();
          setVpsDiagnostics(diagData);
@@ -437,13 +475,36 @@ export default function App() {
     }
   };
 
+  // Synchronize API secret key on initial mount
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const tokenRes = await fetch(`${BASE_URL}/api/get-auth-token`);
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          if (tokenData.key) {
+            localStorage.setItem('aegis_api_key', tokenData.key);
+            setApiKey(tokenData.key);
+          }
+        }
+      } catch (e) {
+        console.warn("Auth token sync error", e);
+      } finally {
+        setAuthSynced(true);
+      }
+    };
+    initAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!authSynced) return;
     fetchTrades();
     fetchPerformance();
-  }, [tradeFilter]);
+  }, [tradeFilter, authSynced]);
 
   // Initial and Periodic Fetch
   useEffect(() => {
+    if (!authSynced) return;
     syncAppData();
 
     // Data Polling (every 5 seconds)
@@ -478,23 +539,23 @@ export default function App() {
       if (socket) socket.close();
       clearInterval(interval);
     };
-  }, []); // Only run once on mount
+  }, [authSynced]); // Wait until auth is synced
 
   // Watch for tab changes to dashboard or engine start to refresh
   useEffect(() => {
+    if (!authSynced) return;
     if (activeTab === 'dashboard' || isBotRunning) {
       fetchTrades();
     }
-  }, [activeTab, isBotRunning]);
+  }, [activeTab, isBotRunning, authSynced]);
 
   const toggleBot = async () => {
     if (!isBotRunning && tradingMode === 'real') {
        // Check if we have at least some keys for the active exchange
-       const hasBinance = exchangeKeys.binance_api_key && exchangeKeys.binance_secret_key;
        const hasBitget = exchangeKeys.bitget_api_key && exchangeKeys.bitget_secret_key;
        
-       if ((activeExchange === 'binance' && !hasBinance) || (activeExchange === 'bitget' && !hasBitget)) {
-         if (!window.confirm("Exchange API keys are missing or incomplete. Real mode requires active credentials. Proceed anyway (Environment variables may be used)?")) {
+       if (!hasBitget) {
+         if (!window.confirm("Bitget API keys are missing or incomplete. Real mode requires active credentials. Proceed anyway (Environment variables may be used)?")) {
            return;
          }
        }
@@ -502,7 +563,7 @@ export default function App() {
 
     const nextState = isBotRunning ? 'stopped' : 'running';
     try {
-      const res = await fetch(`${BASE_URL}/api/bot/toggle`, {
+      const res = await apiFetch(`/api/bot/toggle`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -534,7 +595,7 @@ export default function App() {
 
   const updateSetting = async (field: 'mode' | 'exchange' | 'paper_balance', value: any) => {
     try {
-      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+      const res = await apiFetch(`/api/bot/settings`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -547,7 +608,7 @@ export default function App() {
           setTradingMode(value);
           // Auto refresh data for new mode
           try {
-            const statusRes = await fetch(`${BASE_URL}/api/status`);
+            const statusRes = await apiFetch(`/api/status`);
             if (statusRes.ok) {
               const contentType = statusRes.headers.get("content-type");
               if (contentType && contentType.includes("application/json")) {
@@ -556,7 +617,7 @@ export default function App() {
                 setInitialBalance(value === 'paper' ? statusData.initial_paper_balance : statusData.initial_real_balance);
               }
             }
-            const histRes = await fetch(`${BASE_URL}/api/history?mode=${value}`);
+            const histRes = await apiFetch(`/api/history?mode=${value}`);
             if (histRes.ok) {
               const contentType = histRes.headers.get("content-type");
               if (contentType && contentType.includes("application/json")) {
@@ -599,7 +660,7 @@ export default function App() {
   const withdrawFunds = async () => {
     if (!window.confirm(`Are you sure you want to withdraw all ${tradingMode} funds? This will reset your balance to zero.`)) return;
     try {
-      const res = await fetch(`${BASE_URL}/api/bot/withdraw`, {
+      const res = await apiFetch(`/api/bot/withdraw`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -925,8 +986,8 @@ export default function App() {
                                [ AUTH PARAMETERS : OPEN ]
                              </button>
                              <div className="px-3 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-mono text-zinc-500 flex items-center gap-2">
-                               <div className={cn("w-1.5 h-1.5 rounded-full", (activeExchange === 'binance' ? exchangeKeys.binance_api_key : exchangeKeys.bitget_api_key) ? "bg-emerald-500" : "bg-red-500")} />
-                               {activeExchange.toUpperCase()} SYNC
+                               <div className={cn("w-1.5 h-1.5 rounded-full", exchangeKeys.bitget_api_key ? "bg-emerald-500" : "bg-red-500")} />
+                               BITGET SYNC
                              </div>
                           </div>
                         </div>
@@ -937,7 +998,7 @@ export default function App() {
                      <button 
                       onClick={async () => {
                         try {
-                          const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                          const res = await apiFetch(`/api/bot/settings`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                             body: JSON.stringify({ 
@@ -990,21 +1051,12 @@ export default function App() {
 
             {/* Exchange Selector */}
             <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
-              {['binance', 'bitget'].map((exch) => (
-                <button 
-                  key={exch}
-                  onClick={() => updateSetting('exchange', exch)}
-                  className={cn(
-                    "flex-shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all",
-                    activeExchange === exch 
-                      ? "bg-emerald-600/10 border-emerald-500/50 text-white shadow-lg shadow-emerald-500/10" 
-                      : "bg-[#111] border-white/5 text-zinc-500 hover:border-white/10"
-                  )}
-                >
-                  <div className={cn("w-2 h-2 rounded-full", activeExchange === exch ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-zinc-700")} />
-                  <span className="font-bold uppercase tracking-widest text-sm">{exch}</span>
-                </button>
-              ))}
+              <div 
+                className="flex-shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl border bg-emerald-600/10 border-emerald-500/50 text-white shadow-lg shadow-emerald-500/10" 
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+                <span className="font-bold uppercase tracking-[0.2em] text-xs">BITGET Spot Account Link Active</span>
+              </div>
               <button 
                 onClick={withdrawFunds}
                 className="flex-shrink-0 ml-4 flex items-center gap-2 px-6 py-4 rounded-2xl border border-red-500/20 bg-red-500/5 text-red-500 hover:bg-red-500/10 transition-all font-bold text-xs uppercase tracking-widest"
@@ -1373,7 +1425,7 @@ export default function App() {
                   <button 
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${BASE_URL}/api/bot/strategy`, {
+                        const res = await apiFetch(`/api/bot/strategy`, {
                           method: 'POST',
                           headers: { 
                             'Content-Type': 'application/json',
@@ -1797,33 +1849,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Binance Configuration */}
-                <div className="space-y-4 pt-6 border-t border-white/5">
-                  <div className="flex items-center gap-3 mb-2">
-                     <div className="w-6 h-6 rounded bg-yellow-500 flex items-center justify-center text-[10px] font-black text-black">BN</div>
-                     <h3 className="font-bold text-xs uppercase tracking-widest text-zinc-400">Binance Direct Link</h3>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">API Key</label>
-                      <input 
-                        type="text"
-                        placeholder={exchangeKeys.binance_api_key || "Enter Binance API Key"}
-                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, binance_api_key: e.target.value }))}
-                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-yellow-500/80 focus:border-yellow-500/40 outline-none transition-all placeholder:text-zinc-800"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Secret Key</label>
-                      <input 
-                        type="password"
-                        placeholder="••••••••••••"
-                        onChange={(e) => setExchangeKeys(prev => ({ ...prev, binance_secret_key: e.target.value }))}
-                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-yellow-500/80 focus:border-yellow-500/40 outline-none transition-all"
-                      />
-                    </div>
-                  </div>
-                </div>
+
 
                 {/* Telegram Notifications Link */}
                 <div className="space-y-4 pt-6 border-t border-white/5">
@@ -1862,7 +1888,7 @@ export default function App() {
                 <button 
                   onClick={async () => {
                     try {
-                      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                      const res = await apiFetch(`/api/bot/settings`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                         body: JSON.stringify({ 
@@ -2108,7 +2134,7 @@ export default function App() {
                 <button 
                   onClick={async () => {
                     try {
-                      const res = await fetch(`${BASE_URL}/api/bot/settings`, {
+                      const res = await apiFetch(`/api/bot/settings`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                         body: JSON.stringify({

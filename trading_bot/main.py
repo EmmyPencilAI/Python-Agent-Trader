@@ -24,7 +24,7 @@ class TradingEngine:
         self.is_running = False
         self.trading_mode = "paper" # Default
         self.paper_balance = 1000.0
-        self.active_exchange_id = "binance"
+        self.active_exchange_id = "bitget"
         
         # Initial load from DB
         self._sync_state_from_db()
@@ -37,7 +37,7 @@ class TradingEngine:
             
             self.is_running = state.get('running') == 'running'
             self.trading_mode = state.get('mode', 'paper')
-            self.active_exchange_id = state.get('exchange', 'binance')
+            self.active_exchange_id = "bitget"
             self.paper_balance = float(state.get('paper_balance', 1000))
             
             self.max_drawdown = float(state.get('max_drawdown', 5.0))
@@ -50,13 +50,11 @@ class TradingEngine:
             logger.error(f"Sync error: {e}")
 
     def _init_exchange(self):
-        exch_id = self.active_exchange_id
+        exch_id = "bitget"
         logger.info(f"Initializing exchange: {exch_id} in {self.trading_mode} mode")
         
         try:
             db_keys = {
-                'binance_api_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone(),
-                'binance_secret_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone(),
                 'bitget_api_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone(),
                 'bitget_secret_key': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone(),
                 'bitget_passphrase': self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone(),
@@ -72,56 +70,40 @@ class TradingEngine:
                 # Otherwise, return the environment default
                 return default
 
-            binance_key = get_val('binance_api_key', Config.BINANCE_API_KEY)
-            binance_secret = get_val('binance_secret_key', Config.BINANCE_SECRET_KEY)
             bitget_key = get_val('bitget_api_key', Config.BITGET_API_KEY)
             bitget_secret = get_val('bitget_secret_key', Config.BITGET_API_SECRET)
             bitget_pwd = get_val('bitget_passphrase', Config.BITGET_PASSPHRASE)
             
-            logger.info(f"Keys loaded - Binance: {'Set' if binance_key else 'Missing'}, Bitget: {'Set' if bitget_key else 'Missing'}")
+            logger.info(f"Keys loaded - Bitget: {'Set' if bitget_key else 'Missing'}")
             if bitget_key and not bitget_pwd:
                  logger.warning("Bitget is set but Passphrase is missing. Bitget might require it.")
             
             self.current_keys = {
-                'binance_key': binance_key,
-                'binance_secret': binance_secret,
                 'bitget_key': bitget_key,
                 'bitget_secret': bitget_secret,
                 'bitget_pwd': bitget_pwd,
                 'exch_id': exch_id
             }
 
-            if not bitget_key and exch_id == 'bitget':
+            if not bitget_key:
                  logger.warning("Bitget API Key is missing! Real trading will fail.")
 
         except Exception as e:
             logger.error(f"Error loading keys: {e}")
-            binance_key = Config.BINANCE_API_KEY
-            binance_secret = Config.BINANCE_SECRET_KEY
             bitget_key = Config.BITGET_API_KEY
             bitget_secret = Config.BITGET_API_SECRET
             bitget_pwd = Config.BITGET_PASSPHRASE
 
-        if exch_id == 'binance':
-            return ccxt.binance({
-                'apiKey': binance_key,
-                'secret': binance_secret,
-                'enableRateLimit': True,
-                'options': {'defaultType': 'spot'}
-            })
-        elif exch_id == 'bitget':
-            return ccxt.bitget({
-                'apiKey': bitget_key,
-                'secret': bitget_secret,
-                'password': bitget_pwd,
-                'enableRateLimit': True,
-                'options': {
-                    'defaultType': 'spot',
-                    'adjustForTimeDifference': True
-                }
-            })
-        else:
-            raise ValueError(f"Unsupported exchange: {exch_id}")
+        return ccxt.bitget({
+            'apiKey': bitget_key,
+            'secret': bitget_secret,
+            'password': bitget_pwd,
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'spot',
+                'adjustForTimeDifference': True
+            }
+        })
 
     def get_usdt_balance(self):
         # Force refresh if we don't have a balance yet
@@ -722,21 +704,15 @@ class TradingEngine:
                 # Re-init exchange if it changed in settings (id or keys)
                 keys_changed = False
                 try:
-                    binance_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_api_key'").fetchone()
-                    binance_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'binance_secret_key'").fetchone()
                     bitget_key = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").fetchone()
                     bitget_secret = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").fetchone()
                     bitget_pwd = self.db.conn.execute("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").fetchone()
 
-                    b_k = binance_key[0] if binance_key else Config.BINANCE_API_KEY
-                    b_s = binance_secret[0] if binance_secret else Config.BINANCE_SECRET_KEY
                     bg_k = bitget_key[0] if bitget_key else Config.BITGET_API_KEY
                     bg_s = bitget_secret[0] if bitget_secret else Config.BITGET_SECRET_KEY
                     bg_p = bitget_pwd[0] if bitget_pwd else Config.BITGET_PASSPHRASE
 
-                    if (b_k != self.current_keys.get('binance_key') or 
-                        b_s != self.current_keys.get('binance_secret') or
-                        bg_k != self.current_keys.get('bitget_key') or
+                    if (bg_k != self.current_keys.get('bitget_key') or 
                         bg_s != self.current_keys.get('bitget_secret') or
                         bg_p != self.current_keys.get('bitget_pwd') or
                         self.active_exchange_id != self.current_keys.get('exch_id')):
