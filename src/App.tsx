@@ -1810,6 +1810,40 @@ export default function App() {
               </div>
 
               <div className="p-8 space-y-8 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-zinc-800">
+                {/* Dashboard Auth Key */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Dashboard Auth Key</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="Enter Dashboard Auth Key"
+                      className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          localStorage.setItem('aegis_api_key', apiKey);
+                          // Quick validation call
+                          const res = await fetch((BASE_URL || '') + '/api/health', { headers: { 'x-api-key': apiKey } });
+                          if (res.ok) {
+                            addNotification('success', 'Dashboard Auth Key validated.');
+                            // Refresh app data after saving
+                            syncAppData();
+                          } else {
+                            addNotification('error', 'Invalid Dashboard Auth Key.');
+                          }
+                        } catch (err) {
+                          addNotification('error', 'Auth test failed: network or server error.');
+                        }
+                      }}
+                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-xs"
+                    >
+                      Save & Test
+                    </button>
+                  </div>
+                </div>
                 {/* Bitget Configuration */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 mb-2">

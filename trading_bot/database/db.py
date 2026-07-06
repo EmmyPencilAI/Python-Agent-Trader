@@ -1,7 +1,11 @@
 import sqlite3
 import json
 from datetime import datetime
-from config import Config
+
+try:
+    from config import Config
+except ModuleNotFoundError:
+    from trading_bot.config import Config
 
 class DatabaseManager:
     def __init__(self):

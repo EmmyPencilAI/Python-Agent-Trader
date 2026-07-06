@@ -4,10 +4,19 @@ import json
 import urllib.request
 import pandas as pd
 import ccxt
-from config import Config
-from strategies.base import ScalpingStrategy, SwingStrategy
-from database.db import DatabaseManager
-from notifications.telegram import TelegramManager
+
+try:
+    from config import Config
+    from strategies.base import ScalpingStrategy, SwingStrategy
+    from database.db import DatabaseManager
+    from notifications.telegram import TelegramManager
+    from balance_utils import extract_usdt_balance
+except ModuleNotFoundError:
+    from trading_bot.config import Config
+    from trading_bot.strategies.base import ScalpingStrategy, SwingStrategy
+    from trading_bot.database.db import DatabaseManager
+    from trading_bot.notifications.telegram import TelegramManager
+    from trading_bot.balance_utils import extract_usdt_balance
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("AegisBot")
@@ -36,7 +45,14 @@ class TradingEngine:
             state = {row[0]: row[1] for row in state_rows}
             
             self.is_running = state.get('running') == 'running'
-            self.trading_mode = state.get('mode', 'paper')
+            configured_mode = getattr(Config, 'TRADING_MODE', 'paper').lower()
+            persisted_mode = state.get('mode')
+            if configured_mode == 'real' and persisted_mode == 'paper':
+                self.trading_mode = 'real'
+            elif persisted_mode:
+                self.trading_mode = persisted_mode
+            else:
+                self.trading_mode = configured_mode
             self.active_exchange_id = "bitget"
             self.paper_balance = float(state.get('paper_balance', 1000))
             
@@ -241,28 +257,11 @@ class TradingEngine:
                     except Exception as e:
                         logger.error(f"Deep scan failed: {e}")
 
-                # Extract USDT data
-                # (Existing priority logic follows...)
-                
-                if not usdt_data:
-                    # Priority 2: info block (Raw exchange response) scanning if we haven't found it yet
-                    if 'info' in bal_data and isinstance(bal_data['info'], list):
-                        for asset in bal_data['info']:
-                            if asset.get('coinName') == 'USDT' or asset.get('currency') == 'USDT' or asset.get('coin') == 'USDT':
-                                usdt_data = {
-                                    'total': asset.get('balance') or asset.get('total') or asset.get('available'),
-                                    'free': asset.get('available') or asset.get('free') or asset.get('equity')
-                                }
-                                break
-                    elif 'info' in bal_data and isinstance(bal_data['info'], dict):
-                        info = bal_data['info']
-                        if 'assets' in info:
-                             for asset in info['assets']:
-                                 if asset.get('coinName') == 'USDT':
-                                     usdt_data = {'total': asset.get('total'), 'free': asset.get('available')}
-                                     break
-
-                if not usdt_data:
+                extracted_balance = extract_usdt_balance(bt_data)
+                if extracted_balance > 0:
+                    total_bal = extracted_balance
+                    free_bal = extracted_balance
+                elif not usdt_data:
                     logger.warning("Still no USDT data found after all checks.")
                     total_bal = 0.0
                     free_bal = 0.0

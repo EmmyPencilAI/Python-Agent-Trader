@@ -18,6 +18,21 @@ db.pragma('journal_mode = WAL');
 let pythonProcess: any = null;
 let botStartTime: number | null = null;
 
+function resolveTradingMode(state: any = {}): string {
+  const configuredMode = String(process.env.TRADING_MODE || 'paper').toLowerCase();
+  const persistedMode = String(state?.mode || '').toLowerCase();
+
+  if (configuredMode === 'real' && persistedMode === 'paper') {
+    return 'real';
+  }
+
+  if (persistedMode === 'real' || persistedMode === 'paper') {
+    return persistedMode;
+  }
+
+  return configuredMode;
+}
+
 // Lightweight Memory Caches for high-performance and sub-millisecond loads
 let cachedPrices: any[] = [
   { symbol: 'BTCUSDT', price: '61240.50' },
@@ -334,6 +349,7 @@ async function startServer() {
       stateRows.forEach((row: any) => state[row.key] = row.value);
       
       const config = db.prepare("SELECT * FROM strategy_config WHERE strategy_id = 'default'").get();
+      const resolvedMode = resolveTradingMode(state);
 
       // Logic: Fetch the correct balance from the DB (synced by Python engine)
       const exchange = 'bitget';
@@ -352,7 +368,7 @@ async function startServer() {
 
       res.json({
         status: state.running || 'stopped',
-        mode: state.mode || 'paper',
+        mode: resolvedMode,
         exchange: exchange,
         paper_balance: paperBalance,
         real_balance: realBalance,
