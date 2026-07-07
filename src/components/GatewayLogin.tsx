@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Key, Eye, EyeOff, Zap, AlertCircle, Trash2, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Lock, Key, Eye, EyeOff, Zap, AlertCircle, Trash2, RefreshCw, Terminal } from 'lucide-react';
+import { RouteDiagnosticsDashboard } from './RouteDiagnosticsDashboard';
 
 interface GatewayLoginProps {
   BASE_URL: string;
@@ -19,6 +20,7 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
   const [isWiping, setIsWiping] = useState(false);
   const [wipeError, setWipeError] = useState<string | null>(null);
   const [wipeSuccess, setWipeSuccess] = useState<string | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const handleValidate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +43,12 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
         body: JSON.stringify({ password: inputPassword.trim() })
       });
 
+      if (res.status === 404) {
+        console.error('[AEGIS DIAGNOSTIC] POST /api/auth/login returned 404. Server route configuration is missing or misordered.');
+        setErrorMsg('API Route Not Found (404): POST /api/auth/login. Please consult Route Diagnostics to check endpoint health.');
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         setSuccessMsg('ACCESS GRANTED. DECRYPTING AEGIS ENVIRONMENT...');
@@ -52,7 +60,7 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
         setErrorMsg(errData.error || 'Access Denied: Invalid Security Password');
       }
     } catch (err: any) {
-      setErrorMsg('Gateway Timeout: Backend is currently offline.');
+      setErrorMsg(`Gateway Timeout/Connection Error: ${err.message || 'Backend is currently offline.'}`);
     } finally {
       setIsVerifying(false);
     }
@@ -74,10 +82,17 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
       const res = await fetch(fullUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-api-key': localStorage.getItem('aegis_api_key') || 'Cybunk2.0X'
         },
         body: JSON.stringify({ password: wipePassword.trim() })
       });
+
+      if (res.status === 404) {
+        console.error('[AEGIS DIAGNOSTIC] POST /api/admin/clean-data returned 404. Server route registration issue.');
+        setWipeError('API Route Not Found (404): POST /api/admin/clean-data. Please check routing diagnostics.');
+        return;
+      }
 
       if (res.ok) {
         setWipeSuccess('ALL DATABASES WIPED. APP CLEAN AS NEW!');
@@ -93,7 +108,7 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
         setWipeError(errData.error || 'Wipe Rejected: Invalid Admin Password');
       }
     } catch (err: any) {
-      setWipeError('Failed to contact reset route. Please try again.');
+      setWipeError(`Wipe Failure: ${err.message || 'Failed to contact reset route.'}`);
     } finally {
       setIsWiping(false);
     }
@@ -183,8 +198,8 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
               </button>
             </form>
 
-            <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center gap-3">
-              <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-widest">
+            <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center gap-2">
+              <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-widest text-center">
                 Env variables loaded silently from backend config
               </span>
               <button
@@ -192,8 +207,16 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
                 onClick={() => setShowWipeModal(true)}
                 className="text-[10px] font-black text-rose-500/60 hover:text-rose-400 uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <Trash2 className="w-3. h-3" />
+                <Trash2 className="w-3.5 h-3.5" />
                 Wipe & Clean App as New
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDiagnostics(true)}
+                className="text-[10px] font-black text-emerald-500/60 hover:text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                View Core Diagnostics
               </button>
             </div>
           </>
@@ -277,6 +300,17 @@ export const GatewayLogin: React.FC<GatewayLoginProps> = ({ BASE_URL, onSuccess 
           </div>
         )}
       </div>
+
+      {showDiagnostics && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <RouteDiagnosticsDashboard 
+              BASE_URL={BASE_URL} 
+              onClose={() => setShowDiagnostics(false)} 
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

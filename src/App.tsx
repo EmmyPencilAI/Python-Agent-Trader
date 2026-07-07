@@ -40,7 +40,8 @@ import {
   ShieldAlert,
   Download,
   RefreshCw,
-  LogOut
+  LogOut,
+  Terminal
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -57,6 +58,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { exportLedgerPDF } from './lib/pdfExport';
 import { GatewayLogin } from './components/GatewayLogin';
+import { RouteDiagnosticsDashboard } from './components/RouteDiagnosticsDashboard';
 
 // Mock data for initial load
 const PERFORMANCE_DATA = [
@@ -335,6 +337,7 @@ export default function App() {
   const [showWipeSettings, setShowWipeSettings] = useState(false);
   const [wipeSettingsPassword, setWipeSettingsPassword] = useState('');
   const [isWipingSettings, setIsWipingSettings] = useState(false);
+  const [showCoreDiagnostics, setShowCoreDiagnostics] = useState(false);
 
   const handleWipeSettingsData = async () => {
     if (!wipeSettingsPassword.trim()) {
@@ -342,13 +345,26 @@ export default function App() {
       return;
     }
     setIsWipingSettings(true);
+    console.log('[AEGIS-CLIENT] Initiating total database wipe and reset via POST /api/admin/clean-data...');
     try {
       const res = await fetch(`${BASE_URL}/api/admin/clean-data`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey || localStorage.getItem('aegis_api_key') || 'Cybunk2.0X'
+        },
         body: JSON.stringify({ password: wipeSettingsPassword.trim() })
       });
+      
+      console.log(`[AEGIS-CLIENT] Clean data HTTP response: Status ${res.status}`);
+      
+      if (res.status === 404) {
+        console.error('[AEGIS DIAGNOSTIC] POST /api/admin/clean-data returned 404. Server route unregistered or shadowed.');
+        addNotification('error', 'Wipe Failed: Clean data endpoint not found (404). Please check Route Diagnostics.');
+        return;
+      }
       if (res.ok) {
+        console.log('[AEGIS-CLIENT] Total database wipe successful. Rebooting...');
         addNotification('success', 'DATABASE WIPED. REBOOTING SYSTEM...');
         setWipeSettingsPassword('');
         setShowWipeSettings(false);
@@ -358,10 +374,12 @@ export default function App() {
         }, 1500);
       } else {
         const errData = await res.json().catch(() => ({}));
+        console.error(`[AEGIS-CLIENT] Wipe rejected with status ${res.status}:`, errData);
         addNotification('error', errData.error || 'Wipe failed: Invalid Admin Password');
       }
-    } catch (err) {
-      addNotification('error', 'Wipe connection timeout.');
+    } catch (err: any) {
+      console.error('[AEGIS-CLIENT] Connection error during database wipe:', err);
+      addNotification('error', `Wipe connection error: ${err.message || 'Wipe connection timeout.'}`);
     } finally {
       setIsWipingSettings(false);
     }
@@ -764,24 +782,38 @@ export default function App() {
     }
     setIsSyncingBalance(true);
     addNotification('info', 'Querying Bitget exchange across spot, UTA, swap, and funding wallets...');
+    console.log('[AEGIS-CLIENT] Initiating Bitget balance synchronization via POST /api/bot/sync-balance...');
     try {
       const res = await apiFetch(`/api/bot/sync-balance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
+      
+      console.log(`[AEGIS-CLIENT] Balance sync HTTP response: Status ${res.status}, Type: ${res.type}`);
+      
+      if (res.status === 404) {
+        const textErr = await res.text().catch(() => 'No body');
+        console.error(`[AEGIS DIAGNOSTIC] POST /api/bot/sync-balance returned 404. Details: ${textErr}. Server route configuration is missing or shadowed.`);
+        addNotification('error', 'Sync Failed: Balance sync endpoint not found (404). Please consult Route Diagnostics.');
+        return;
+      }
       if (res.ok) {
         const data = await safeJson(res, {});
+        console.log('[AEGIS-CLIENT] Balance sync successful. Received data:', data);
         if (data.success) {
           setBalance(data.balance);
           addNotification('success', `Balance synchronized successfully: ${data.balance.toLocaleString()} USDT`);
         } else {
+          console.error('[AEGIS-CLIENT] Sync responded with error:', data.error);
           addNotification('error', `Synchronization failed: ${data.error || 'Unknown error'}`);
         }
       } else {
         const errData = await safeJson(res, {});
+        console.error(`[AEGIS-CLIENT] Sync failed with status ${res.status}:`, errData);
         addNotification('error', `Failed to sync balance: ${errData.error || 'Server error'}`);
       }
     } catch (err: any) {
+      console.error('[AEGIS-CLIENT] Connection exception during balance sync:', err);
       addNotification('error', `Connection error: ${err.message || 'Failed to reach server'}`);
     } finally {
       setIsSyncingBalance(false);
@@ -1985,6 +2017,25 @@ export default function App() {
               </div>
           </div>
         )}
+         {activeTab === 'settings' && (
+           <div className="bg-[#111] border border-white/5 rounded-3xl p-8 space-y-4 max-w-3xl mx-auto mt-8 animate-in fade-in">
+              <div className="flex items-center gap-3">
+                 <Terminal className="text-emerald-500 w-6 h-6" />
+                 <h3 className="font-bold text-lg">Server Routing & Health Observation</h3>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Observe all registered server API endpoints, track request statuses, and verify real-time traffic to debug 404 routing or integration communication failures.
+              </p>
+              <button 
+                type="button"
+                onClick={() => setShowCoreDiagnostics(true)}
+                className="px-5 py-3 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer flex items-center gap-2 h-10"
+              >
+                <Terminal size={14} />
+                Launch Route Diagnostics Console
+              </button>
+           </div>
+         )}
       </main>
 
       {/* Floating Action Button for Mobile Settings */}
@@ -2464,6 +2515,17 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showCoreDiagnostics && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <RouteDiagnosticsDashboard 
+              BASE_URL={BASE_URL} 
+              onClose={() => setShowCoreDiagnostics(false)} 
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

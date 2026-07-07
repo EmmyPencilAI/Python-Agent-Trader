@@ -45,6 +45,17 @@ let cachedPrices: any[] = [
 ];
 let cachedServerIp = '127.0.0.1';
 
+interface RequestLog {
+  timestamp: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  ip: string;
+  errorMessage?: string;
+}
+
+const requestTrafficLogs: RequestLog[] = [];
+
 function getPythonBinary(): string {
   let pythonBinary = 'python3';
   const venvPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
@@ -358,6 +369,41 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  // Middleware to capture API traffic
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      const originalSend = res.send;
+      let errorMessage: string | undefined;
+
+      res.send = function (body) {
+        if (res.statusCode >= 400 && typeof body === 'string') {
+          try {
+            const parsed = JSON.parse(body);
+            errorMessage = parsed.error || parsed.message;
+          } catch (e) {
+            errorMessage = body.substring(0, 100);
+          }
+        }
+        return originalSend.apply(res, arguments as any);
+      };
+
+      res.on('finish', () => {
+        if (requestTrafficLogs.length >= 100) {
+          requestTrafficLogs.shift();
+        }
+        requestTrafficLogs.push({
+          timestamp: new Date().toISOString(),
+          method: req.method,
+          path: req.originalUrl || req.path,
+          statusCode: res.statusCode,
+          ip: req.ip || 'unknown',
+          errorMessage: errorMessage
+        });
+      });
+    }
+    next();
+  });
+
   // API Middleware
   const apiKeyGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const apiKey = req.headers['x-api-key'];
@@ -369,6 +415,38 @@ async function startServer() {
     }
     next();
   };
+
+  // Route diagnostics console API
+  app.get('/api/route-diagnostics', (req, res) => {
+    try {
+      res.json({
+        routes: [
+          { method: 'GET', path: '/api/health', description: 'System health check' },
+          { method: 'GET', path: '/api/get-auth-token', description: 'Retrieve authorization token' },
+          { method: 'POST', path: '/api/auth/login', description: 'Authenticate user and retrieve secret API key' },
+          { method: 'POST', path: '/api/admin/clean-data', description: 'Clear all database records and reset the system state' },
+          { method: 'GET', path: '/api/history', description: 'Fetch historical balance data' },
+          { method: 'GET', path: '/api/status', description: 'Fetch live system status metrics' },
+          { method: 'POST', path: '/api/bot/activate', description: 'Activate/Deactivate secure trading engine' },
+          { method: 'POST', path: '/api/bot/sync-balance', description: 'Trigger manual balance synchronization via CCXT subprocess' },
+          { method: 'POST', path: '/api/bot/strategy', description: 'Update current strategic indicator weights' },
+          { method: 'POST', path: '/api/bot/settings', description: 'Save global configuration parameters' },
+          { method: 'GET', path: '/api/server-ip', description: 'Retrieve VPS server external IP address' },
+          { method: 'GET', path: '/api/market/klines', description: 'Fetch market candlestick historical data' },
+          { method: 'GET', path: '/api/market/prices', description: 'Fetch real-time ticker prices' },
+          { method: 'POST', path: '/api/bot/withdraw', description: 'Simulate asset withdrawal to cold storage' },
+          { method: 'GET', path: '/api/system-diagnostics', description: 'Retrieve process-level memory and uptime telemetry' },
+          { method: 'GET', path: '/api/deploy-script', description: 'Generate Ubuntu VPS automated deployment bash script' },
+          { method: 'GET', path: '/api/trades', description: 'Retrieve trade execution ledger logs' },
+          { method: 'GET', path: '/api/export-ledger', description: 'Download CSV file of all executed trades' },
+          { method: 'GET', path: '/api/performance', description: 'Fetch closed-trade performance metrics' }
+        ],
+        logs: requestTrafficLogs
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to fetch route diagnostics: ${err.message}` });
+    }
+  });
 
   // Health check
   app.get('/api/health', (req, res) => {
@@ -402,7 +480,7 @@ async function startServer() {
   });
 
   // Pristine App Wipe & Reset Data Endpoint
-  app.post('/api/admin/clean-data', (req, res) => {
+  app.post('/api/admin/clean-data', apiKeyGuard, (req, res) => {
     try {
       const { password } = req.body;
       const adminPassword = process.env.ACTIVATION_PASSWORD || HARDCODED_KEYS.ACTIVATION_PASSWORD || 'Cybunk2.0X';
