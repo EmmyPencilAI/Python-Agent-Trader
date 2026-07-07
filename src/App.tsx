@@ -41,7 +41,8 @@ import {
   Download,
   RefreshCw,
   LogOut,
-  Terminal
+  Terminal,
+  Trash2
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -325,11 +326,58 @@ export default function App() {
     disable_safety_stops: 'false'
   });
 
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [logoutPassword, setLogoutPassword] = useState('');
+  const [isLoggingOutAndWiping, setIsLoggingOutAndWiping] = useState(false);
+
   const handleLogOut = () => {
+    setShowLogoutModal(true);
+  };
+
+  const executeNormalLogout = () => {
     localStorage.removeItem('aegis_api_key');
     setApiKey('Cybunk2.0X');
     setIsAuthorized(false);
     addNotification('info', 'Secure Session Terminated.');
+    setShowLogoutModal(false);
+  };
+
+  const executeWipeLogout = async () => {
+    if (!logoutPassword.trim()) {
+      addNotification('error', 'Please enter your Admin Password.');
+      return;
+    }
+    setIsLoggingOutAndWiping(true);
+    console.log('[AEGIS-CLIENT] Initiating total database wipe on logout via POST /api/admin/clean-data...');
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/clean-data`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey || localStorage.getItem('aegis_api_key') || 'Cybunk2.0X'
+        },
+        body: JSON.stringify({ password: logoutPassword.trim() })
+      });
+      
+      if (res.ok) {
+        addNotification('success', 'DATABASE WIPED. SECURE SESSION TERMINATED.');
+        localStorage.removeItem('aegis_api_key');
+        setApiKey('Cybunk2.0X');
+        setIsAuthorized(false);
+        setLogoutPassword('');
+        setShowLogoutModal(false);
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addNotification('error', errData.error || 'Wipe Rejected: Invalid Admin Password');
+      }
+    } catch (err: any) {
+      addNotification('error', `Wipe failed: ${err.message || 'Connection error.'}`);
+    } finally {
+      setIsLoggingOutAndWiping(false);
+    }
   };
   
   // API Keys and External Config
@@ -2261,6 +2309,103 @@ export default function App() {
                 >
                   DEPLOY TO ENGINE
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Secure Logout Modal */}
+      <AnimatePresence>
+        {showLogoutModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-zinc-900/20">
+                <div>
+                  <h2 className="text-xl font-black tracking-tight flex items-center gap-3 text-zinc-100 uppercase">
+                    <LogOut className="text-rose-500" /> Secure Logout Options
+                  </h2>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mt-1">Select termination protocol</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowLogoutModal(false);
+                    setLogoutPassword('');
+                  }}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-full transition-all cursor-pointer"
+                >
+                  <X size={20} className="text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider">Option 1: Standard Logout</h3>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Ends your active frontend gateway session. Your server database and hardcoded credentials will remain fully intact.
+                  </p>
+                  <button
+                    onClick={executeNormalLogout}
+                    className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-white/5 hover:border-white/10 rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <LogOut size={14} />
+                    Standard Session Logout
+                  </button>
+                </div>
+
+                <div className="border-t border-white/5 my-4" />
+
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Option 2: Pristine Database Wipe & Logout
+                  </h3>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Completely flushes the SQLite databases, resetting trades, logs, and state back to a completely clean, uninitialized state, and signs you out.
+                  </p>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest block">
+                      Enter Admin Password to Authorize Wipe (e.g. Cybunk2.0X)
+                    </label>
+                    <input 
+                      type="password"
+                      placeholder="Enter Admin Password..."
+                      value={logoutPassword}
+                      onChange={(e) => setLogoutPassword(e.target.value)}
+                      disabled={isLoggingOutAndWiping}
+                      className="w-full bg-white/5 border border-rose-500/20 focus:border-rose-500 rounded-xl px-4 py-3 text-sm font-mono text-rose-400 outline-none transition-all placeholder:text-zinc-800"
+                    />
+                  </div>
+
+                  <button
+                    onClick={executeWipeLogout}
+                    disabled={isLoggingOutAndWiping}
+                    className="w-full py-4 bg-rose-600 hover:bg-rose-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-xl font-black text-xs uppercase tracking-[0.15em] transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-950/20 cursor-pointer"
+                  >
+                    {isLoggingOutAndWiping ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Wiping Database & Exiting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Wipe App Clean & Logout
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
