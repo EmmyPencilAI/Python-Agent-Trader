@@ -2,7 +2,32 @@
 
 This application is a full-stack Node.js (React + Express) app that manages a Python trading engine.
 
-## 🚀 Render.com (Recommended for 24/7 Trading)
+## 🛡️ 24/7 High Availability & Persistence Guide
+
+### 1. Render.com Persistence (Keep Free Tier Alive)
+Render free web services will automatically spin down (go to sleep) after 15 minutes of inactivity (no external incoming HTTP requests). To prevent sleeping and ensure your trading engine runs 24/7 without stopping:
+- **Set Up a Free External Ping Service**: 
+  - Register at [UptimeRobot.com](https://uptimerobot.com) or [Cron-job.org](https://cron-job.org).
+  - Create a new "HTTPS" monitor pointing directly to your Render URL: `https://<your-app-name>.onrender.com/api/health`.
+  - Set the interval to check **every 5 minutes**. This keeps the web service constantly active, preventing Render from sleeping.
+
+### 2. Ubuntu VPS from Interserver.net Persistence (Auto-start on reboot)
+For Ubuntu VPS deployments, we use **PM2** (Process Manager 2) to manage the applet and keep it running persistently across crashes and system restarts:
+- **Deploy with PM2**:
+  - Run the VPS deploy script to launch the app automatically.
+  - To make PM2 save its process list and start up automatically when your Ubuntu server reboots, run:
+    ```bash
+    pm2 startup
+    # (Follow the instruction printed by PM2 on your terminal to copy/paste the systemd command)
+    pm2 save
+    ```
+- **Checking Engine Logs**:
+  - View real-time logs: `pm2 logs`
+  - Restart the app: `pm2 restart aegis-trader`
+
+---
+
+## 🚀 Render.com Deployment Steps
 
 1. **New Web Service**: Connect your repo.
 2. **Runtime**: Select **Node**.

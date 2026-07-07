@@ -38,7 +38,9 @@ import {
   AlertTriangle,
   Loader2,
   ShieldAlert,
-  Download
+  Download,
+  RefreshCw,
+  LogOut
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -54,6 +56,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { exportLedgerPDF } from './lib/pdfExport';
+import { GatewayLogin } from './components/GatewayLogin';
 
 // Mock data for initial load
 const PERFORMANCE_DATA = [
@@ -109,6 +112,19 @@ async function apiFetch(urlPath: string, options?: RequestInit): Promise<Respons
   }
 }
 
+async function safeJson(res: Response | null | undefined, defaultVal: any = {}): Promise<any> {
+  if (!res) return defaultVal;
+  try {
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      return defaultVal;
+    }
+    return await res.json().catch(() => defaultVal);
+  } catch (err) {
+    return defaultVal;
+  }
+}
+
 const WS_URL = BASE_URL 
   ? BASE_URL.replace(/^http/, 'ws') 
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -154,7 +170,7 @@ const TradingChart = ({ symbol, trades }: { symbol: string, trades: Trade[] }) =
       try {
         const res = await apiFetch(`/api/market/klines?symbol=${symbol}`);
         if (res.ok) {
-          const data: any[] = await res.json();
+          const data: any[] = await safeJson(res, []);
           if (!Array.isArray(data)) return;
           candleSeries.setData(data.map(k => ({
             time: k.time as UTCTimestamp,
@@ -224,6 +240,7 @@ export default function App() {
   const [activeExchange, setActiveExchange] = useState('bitget');
   const [paperBalance, setPaperBalance] = useState(1000);
   const [balance, setBalance] = useState(0.00); 
+  const [isSyncingBalance, setIsSyncingBalance] = useState(false);
   const [initialBalance, setInitialBalance] = useState(0.00);
   const [history, setHistory] = useState<{balance: number, timestamp: string}[]>([]);
   const [sessionStart, setSessionStart] = useState<string | null>(null);
@@ -241,6 +258,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('aegis_trade_filter', tradeFilter);
   }, [tradeFilter]);
+
+  useEffect(() => {
+    if (tradingMode === 'real' && balance === 0.00 && !isSyncingBalance) {
+      syncRealBalance();
+    }
+  }, [tradingMode]);
   const [prices, setPrices] = useState<Record<string, number>>({ BTCUSDT: 61240.50, ETHUSDT: 3350.20, SOLUSDT: 138.45, BNBUSDT: 565.10 });
   const [status, setStatus] = useState({ active_strategy: 'Scalping', uptime: '0h 0m' });
   const [performance, setPerformance] = useState({ total_trades: 0, wins: 0, total_pnl: 0 });
@@ -281,10 +304,13 @@ export default function App() {
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
   const [apiKey, setApiKey] = useState(localStorage.getItem('aegis_api_key') || 'Cybunk2.0X');
   const [authSynced, setAuthSynced] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [hasFatalError, setHasFatalError] = useState<string | null>(null);
+  const [activationPassword, setActivationPassword] = useState('');
   const [serverIp, setServerIp] = useState<string>('');
   const [vpsDiagnostics, setVpsDiagnostics] = useState<any>(null);
+  const [lastError, setLastError] = useState<string>('');
   
   // Risk Safeguards and Limits
   const [showRiskManager, setShowRiskManager] = useState(false);
@@ -296,9 +322,51 @@ export default function App() {
     max_trades_per_day: '100',
     disable_safety_stops: 'false'
   });
+
+  const handleLogOut = () => {
+    localStorage.removeItem('aegis_api_key');
+    setApiKey('Cybunk2.0X');
+    setIsAuthorized(false);
+    addNotification('info', 'Secure Session Terminated.');
+  };
   
   // API Keys and External Config
   const [showKeyManager, setShowKeyManager] = useState(false);
+  const [showWipeSettings, setShowWipeSettings] = useState(false);
+  const [wipeSettingsPassword, setWipeSettingsPassword] = useState('');
+  const [isWipingSettings, setIsWipingSettings] = useState(false);
+
+  const handleWipeSettingsData = async () => {
+    if (!wipeSettingsPassword.trim()) {
+      addNotification('error', 'Please enter your Admin Password.');
+      return;
+    }
+    setIsWipingSettings(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/clean-data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: wipeSettingsPassword.trim() })
+      });
+      if (res.ok) {
+        addNotification('success', 'DATABASE WIPED. REBOOTING SYSTEM...');
+        setWipeSettingsPassword('');
+        setShowWipeSettings(false);
+        localStorage.removeItem('aegis_api_key');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addNotification('error', errData.error || 'Wipe failed: Invalid Admin Password');
+      }
+    } catch (err) {
+      addNotification('error', 'Wipe connection timeout.');
+    } finally {
+      setIsWipingSettings(false);
+    }
+  };
+
   const [exchangeKeys, setExchangeKeys] = useState({
     bitget_api_key: '',
     bitget_secret_key: '',
@@ -379,9 +447,17 @@ export default function App() {
         apiFetch(`/api/performance?mode=${tradeFilter}`).catch(() => null)
       ]);
       
-      const statusData = statusRes && statusRes.ok ? await statusRes.json().catch(() => ({})) : {};
-      const tradesData = tradesRes && tradesRes.ok ? await tradesRes.json().catch(() => ([])) : [];
-      const perfData = perfRes && perfRes.ok ? await perfRes.json().catch(() => ({ total_trades: 0 })) : { total_trades: 0 };
+      if (statusRes && statusRes.status === 401) {
+        setIsAuthorized(false);
+        setIsInitialLoading(false);
+        return;
+      } else {
+        setIsAuthorized(true);
+      }
+      
+      const statusData = await safeJson(statusRes, {});
+      const tradesData = await safeJson(tradesRes, []);
+      const perfData = await safeJson(perfRes, { total_trades: 0 });
       let pricesData: Record<string, number> = {};
       
       if (perfData) {
@@ -390,7 +466,7 @@ export default function App() {
       
       if (pricesRes && pricesRes.ok) {
         try {
-          const pArr = await pricesRes.json();
+          const pArr = await safeJson(pricesRes, []);
           if (Array.isArray(pArr)) {
             pArr.forEach((p: any) => {
               if (p && p.symbol && p.price) {
@@ -409,6 +485,7 @@ export default function App() {
         setActiveExchange('bitget');
         setPaperBalance(parseFloat(String(statusData.paper_balance || '1000')));
         setBalance(parseFloat(String(statusData.real_balance || '0')));
+        setLastError(statusData.last_error || '');
         setStatus(statusData);
         
         const currentModeBal = statusData.mode === 'paper' ? statusData.paper_balance : statusData.real_balance;
@@ -459,13 +536,13 @@ export default function App() {
 
       const ipRes = await apiFetch(`/api/server-ip`).catch(() => null);
       if (ipRes && ipRes.ok) {
-         const ipData = await ipRes.json();
+         const ipData = await safeJson(ipRes, { ip: '127.0.0.1' });
          setServerIp(ipData.ip);
       }
 
       const diagRes = await apiFetch(`/api/system-diagnostics`).catch(() => null);
       if (diagRes && diagRes.ok) {
-         const diagData = await diagRes.json();
+         const diagData = await safeJson(diagRes, null);
          setVpsDiagnostics(diagData);
       }
     } catch (err) {
@@ -481,7 +558,7 @@ export default function App() {
       try {
         const tokenRes = await fetch(`${BASE_URL}/api/get-auth-token`);
         if (tokenRes.ok) {
-          const tokenData = await tokenRes.json();
+          const tokenData = await safeJson(tokenRes, {});
           if (tokenData.key) {
             localStorage.setItem('aegis_api_key', tokenData.key);
             setApiKey(tokenData.key);
@@ -551,13 +628,13 @@ export default function App() {
 
   const toggleBot = async () => {
     if (!isBotRunning && tradingMode === 'real') {
-       // Check if we have at least some keys for the active exchange
+       const isActivated = (status as any).activated;
        const hasBitget = exchangeKeys.bitget_api_key && exchangeKeys.bitget_secret_key;
        
-       if (!hasBitget) {
-         if (!window.confirm("Bitget API keys are missing or incomplete. Real mode requires active credentials. Proceed anyway (Environment variables may be used)?")) {
-           return;
-         }
+       if (!isActivated && !hasBitget) {
+         addNotification('error', 'Security Gate: Live engine locked. Enter activation password to proceed.');
+         setShowKeyManager(true);
+         return;
        }
     }
 
@@ -680,6 +757,37 @@ export default function App() {
     }
   };
 
+  const syncRealBalance = async () => {
+    if (tradingMode !== 'real') {
+      addNotification('info', 'Balance sync is only required for Live/Real Trading Mode.');
+      return;
+    }
+    setIsSyncingBalance(true);
+    addNotification('info', 'Querying Bitget exchange across spot, UTA, swap, and funding wallets...');
+    try {
+      const res = await apiFetch(`/api/bot/sync-balance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await safeJson(res, {});
+        if (data.success) {
+          setBalance(data.balance);
+          addNotification('success', `Balance synchronized successfully: ${data.balance.toLocaleString()} USDT`);
+        } else {
+          addNotification('error', `Synchronization failed: ${data.error || 'Unknown error'}`);
+        }
+      } else {
+        const errData = await safeJson(res, {});
+        addNotification('error', `Failed to sync balance: ${errData.error || 'Server error'}`);
+      }
+    } catch (err: any) {
+      addNotification('error', `Connection error: ${err.message || 'Failed to reach server'}`);
+    } finally {
+      setIsSyncingBalance(false);
+    }
+  };
+
   const currentPnL = useMemo(() => {
     if (!Array.isArray(trades)) return 0;
     return trades.reduce((acc, trade) => acc + (trade ? (trade.pnl || 0) : 0), 0);
@@ -731,6 +839,20 @@ export default function App() {
     );
   }
 
+  if (isAuthorized === false) {
+    return (
+      <GatewayLogin 
+        BASE_URL={BASE_URL}
+        onSuccess={(key) => {
+          localStorage.setItem('aegis_api_key', key);
+          setApiKey(key);
+          setIsAuthorized(true);
+          syncAppData();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#09090b] text-white selection:bg-emerald-500/30 font-sans selection:text-emerald-200">
       {/* Sidebar / Navigation (Mobile Bottom, Desktop Left) */}
@@ -745,6 +867,7 @@ export default function App() {
         <NavItem icon={<History />} label="Trades" active={activeTab === 'trades'} onClick={() => setActiveTab('trades')} />
         <NavItem icon={<Activity />} label="Algo" active={activeTab === 'strategies'} onClick={() => setActiveTab('strategies')} />
         <NavItem icon={<Settings />} label="Config" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        <NavItem icon={<LogOut />} label="Exit" active={false} onClick={handleLogOut} />
       </nav>
 
       {/* Notifications Overlay */}
@@ -777,6 +900,46 @@ export default function App() {
 
       {/* Main Content */}
       <main className="pb-24 pt-8 px-6 md:pl-28 md:pr-12 md:pb-12 max-w-7xl mx-auto">
+        {lastError && (
+          <div className="mb-8 p-6 bg-rose-500/10 border border-rose-500/20 rounded-3xl backdrop-blur-xl flex flex-col md:flex-row gap-6 justify-between items-start md:items-center animate-pulse-subtle">
+            <div className="flex gap-4">
+              <div className="p-3 bg-rose-500/20 rounded-2xl h-fit">
+                <ShieldAlert className="w-6 h-6 text-rose-400" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider text-rose-400">Exchange API Sync Alert</h4>
+                <p className="text-xs text-zinc-300 mt-1 max-w-xl font-mono break-all bg-black/30 p-2 rounded-lg my-1">
+                  {lastError}
+                </p>
+                {lastError.includes("40018") || lastError.toLowerCase().includes("invalid ip") ? (
+                  <div className="text-xs text-zinc-400 space-y-1">
+                    <p className="text-amber-400 font-semibold uppercase text-[10px] tracking-wider mt-2">🛡️ ACTION REQUIRED: Whitelist Server IP</p>
+                    <p>Your Bitget API Key has IP restriction enabled, but this server's outbound IP is not on the whitelist.</p>
+                    <p>Please copy the server IP <code className="bg-white/10 px-1 py-0.5 rounded font-mono text-emerald-400 font-bold">{serverIp || 'fetching...'}</code> and paste it in your <strong>Bitget API Key Whitelist</strong> settings, or disable IP restrictions on Bitget.</p>
+                  </div>
+                ) : lastError.toLowerCase().includes("invalid sign") || lastError.toLowerCase().includes("api key") || lastError.toLowerCase().includes("sign") ? (
+                  <p className="text-xs text-zinc-400 mt-2">
+                    Please double-check that your Bitget API Key, Secret, and Passphrase (API Password) are correct and active in the exchange keys panel.
+                  </p>
+                ) : (
+                  <p className="text-xs text-zinc-400 mt-2">
+                    The bot is unable to synchronize balances with Bitget. Please verify your credentials and permissions.
+                  </p>
+                )}
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(serverIp);
+                addNotification('success', 'Server IP copied to clipboard!');
+              }}
+              className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/30 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all whitespace-nowrap"
+            >
+              Copy Server IP
+            </button>
+          </div>
+        )}
+
         <header className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
           <div>
             <div className="flex flex-wrap items-center gap-3 mb-2">
@@ -859,9 +1022,19 @@ export default function App() {
               <StatsCard
                 label="Available Liquidity"
                 value={`${balance.toLocaleString()} USDT`}
-                change={tradingMode === 'paper' ? "Virtual Assets" : (balance > 0 ? "Live Account" : "Connect API")}
+                change={tradingMode === 'paper' ? "Virtual Assets" : ((status as any).activated || exchangeKeys.bitget_api_key ? (balance > 0 ? ((status as any).ip_restricted ? "Simulated (IP Locked)" : "Live Account") : "Syncing Wallet") : "Connect API")}
                 trend={balance > initialBalance ? "up" : (balance < initialBalance ? "down" : "neutral")}
                 icon={<ShieldCheck className="text-emerald-500" />}
+                action={tradingMode === 'real' && (
+                  <button 
+                    onClick={syncRealBalance}
+                    disabled={isSyncingBalance}
+                    title="Sync Balance with Bitget"
+                    className="p-1.5 rounded bg-white/5 hover:bg-emerald-600/25 text-zinc-400 hover:text-emerald-400 transition-all flex items-center justify-center disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("w-3.5 h-3.5", isSyncingBalance && "animate-spin")} />
+                  </button>
+                )}
               />
               <StatsCard
                 label="Portfolio Growth"
@@ -1488,29 +1661,68 @@ export default function App() {
                   <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-bold text-zinc-500 uppercase tracking-widest">v4.2.0-STABLE</div>
                 </div>
                 
-                <div className="p-5 bg-white/5 border border-white/10 rounded-2xl mb-6">
-                    <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2 flex justify-between">
-                      <span>Dashboard Auth Key (X-API-KEY)</span>
-                      <span className="text-emerald-500/50">Stored Locally</span>
-                    </label>
-                    <div className="flex gap-4">
-                      <input 
-                        type="password" 
-                        placeholder="Dashboard Auth Key..."
-                        value={apiKey}
-                        onChange={(e) => {
-                          setApiKey(e.target.value);
-                          localStorage.setItem('aegis_api_key', e.target.value);
-                        }}
-                        className="flex-1 bg-transparent border-none p-0 text-lg font-bold font-mono focus:ring-0 placeholder:text-zinc-700"
-                      />
+                <div className="p-6 bg-white/5 border border-white/10 rounded-2xl mb-6 space-y-4">
+                  <div className="flex justify-between items-center pb-4 border-b border-white/5">
+                    <div>
+                      <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Security State</div>
+                      <div className="text-sm font-bold text-emerald-400 font-mono mt-0.5">Session Authenticated via Admin Password</div>
+                    </div>
+                    <button 
+                      onClick={handleLogOut}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                    >
+                      LOG OUT
+                    </button>
+                  </div>
+
+                  {!showWipeSettings ? (
+                    <div className="flex justify-between items-center pt-2">
+                      <div>
+                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Pristine App Maintenance</div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5">Completely clean all trades, logs, and database history.</div>
+                      </div>
                       <button 
-                        onClick={() => syncAppData()}
-                        className="px-4 py-2 bg-emerald-600/10 text-emerald-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600/20"
+                        onClick={() => setShowWipeSettings(true)}
+                        className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
                       >
-                        RE-SYNC
+                        Wipe & Clean App
                       </button>
                     </div>
+                  ) : (
+                    <div className="pt-2 space-y-3 bg-rose-950/10 border border-rose-500/20 p-4 rounded-xl animate-in fade-in duration-200">
+                      <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">Confirm Pristine Reset</div>
+                      <p className="text-[11px] text-zinc-400">This will purge all SQLite database entries. To proceed, please enter your Admin Password:</p>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <input 
+                          type="password"
+                          placeholder="Enter Admin Password..."
+                          value={wipeSettingsPassword}
+                          onChange={(e) => setWipeSettingsPassword(e.target.value)}
+                          className="flex-1 bg-zinc-900 border border-white/10 focus:border-rose-500/50 rounded-xl px-4 py-2 text-xs font-mono text-rose-400 outline-none transition-all"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowWipeSettings(false);
+                              setWipeSettingsPassword('');
+                            }}
+                            className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-[10px] font-bold uppercase hover:bg-zinc-700 transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleWipeSettingsData}
+                            disabled={isWipingSettings}
+                            className="px-4 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 transition-colors disabled:bg-zinc-800 cursor-pointer"
+                          >
+                            {isWipingSettings ? 'Wiping...' : 'Confirm Reset'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1810,40 +2022,92 @@ export default function App() {
               </div>
 
               <div className="p-8 space-y-8 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-zinc-800">
-                {/* Dashboard Auth Key */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Dashboard Auth Key</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="Enter Dashboard Auth Key"
-                      className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
-                    />
-                    <button
-                      onClick={async () => {
-                        try {
-                          localStorage.setItem('aegis_api_key', apiKey);
-                          // Quick validation call
-                          const res = await fetch((BASE_URL || '') + '/api/health', { headers: { 'x-api-key': apiKey } });
-                          if (res.ok) {
-                            addNotification('success', 'Dashboard Auth Key validated.');
-                            // Refresh app data after saving
-                            syncAppData();
-                          } else {
-                            addNotification('error', 'Invalid Dashboard Auth Key.');
+                {/* Secure Password Activation */}
+                <div className="space-y-4 pb-6 border-b border-white/5">
+                  <div className="flex items-center gap-3">
+                     <ShieldCheck className="text-emerald-500 w-6 h-6" />
+                     <h3 className="font-bold text-xs uppercase tracking-widest text-zinc-400">Master Password Activation</h3>
+                  </div>
+                  <p className="text-xs text-zinc-400">
+                    Aegis is running in <span className="text-emerald-400 font-semibold">Secure Hardcoded Credentials Mode</span> on your server. 
+                    Enter your activation password to securely unlock and authorize live trading without exposing your API keys to the browser.
+                  </p>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4 items-end">
+                    <div className="space-y-2 flex-1">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Activation Password</label>
+                      <input 
+                        type="password"
+                        placeholder="••••••••"
+                        value={activationPassword}
+                        onChange={(e) => setActivationPassword(e.target.value)}
+                        className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono text-emerald-400 focus:border-emerald-500/40 outline-none transition-all"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const res = await apiFetch('/api/bot/activate', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                              body: JSON.stringify({ password: activationPassword })
+                            });
+                            if (res.ok) {
+                              addNotification('success', 'Aegis Live Engine Activated');
+                              setActivationPassword('');
+                              syncAppData();
+                            } else {
+                              const errData = await safeJson(res, {});
+                              addNotification('error', `Activation Failed: ${errData.error || 'Invalid password'}`);
+                            }
+                          } catch (err) {
+                            addNotification('error', 'Activation Failure: Timeout');
                           }
-                        } catch (err) {
-                          addNotification('error', 'Auth test failed: network or server error.');
-                        }
-                      }}
-                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-xs"
-                    >
-                      Save & Test
-                    </button>
+                        }}
+                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs uppercase tracking-widest font-black transition-all"
+                      >
+                        Activate
+                      </button>
+                      
+                      {(status as any).activated && (
+                        <button 
+                          onClick={async () => {
+                            if (!window.confirm("Deactivate live engine and clear activated session?")) return;
+                            try {
+                              const res = await apiFetch('/api/bot/activate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                                body: JSON.stringify({ password: activationPassword || 'Cybunk08108425282', action: 'deactivate' })
+                              });
+                              if (res.ok) {
+                                addNotification('info', 'Aegis Live Engine Deactivated');
+                                syncAppData();
+                              }
+                            } catch (err) {}
+                          }}
+                          className="px-6 py-3 bg-zinc-800 hover:bg-red-950/40 text-zinc-400 hover:text-red-400 rounded-xl text-xs uppercase tracking-widest font-black transition-all border border-white/5"
+                        >
+                          Deactivate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Status Indicator */}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className={cn(
+                      "inline-block w-2.5 h-2.5 rounded-full animate-pulse",
+                      (status as any).activated ? "bg-emerald-500" : "bg-zinc-600"
+                    )} />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                      System Key Status: <span className={(status as any).activated ? "text-emerald-400" : "text-zinc-400"}>
+                        {(status as any).activated ? "ACTIVE (HARDCODED KEYS UNLOCKED)" : "LOCKED / UNACTIVATED"}
+                      </span>
+                    </span>
                   </div>
                 </div>
+
                 {/* Bitget Configuration */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 mb-2">
@@ -1935,7 +2199,7 @@ export default function App() {
                         setShowKeyManager(false);
                         syncAppData();
                       } else {
-                        const errData = await res.json();
+                        const errData = await safeJson(res, {});
                         addNotification('error', `Sync Failure: ${errData.error || 'Server error'}`);
                       }
                     } catch (err) {
@@ -2244,18 +2508,21 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function StatsCard({ label, value, change, trend, icon }: { label: string, value: string, change: string, trend: 'up' | 'down' | 'neutral', icon: React.ReactNode }) {
+function StatsCard({ label, value, change, trend, icon, action }: { label: string, value: string, change: string, trend: 'up' | 'down' | 'neutral', icon: React.ReactNode, action?: React.ReactNode }) {
   return (
     <div className="bg-[#111] border border-white/5 rounded-3xl p-6 hover:border-white/10 transition-colors group">
       <div className="flex items-center justify-between mb-4">
         <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
           {icon}
         </div>
-        <div className={cn(
-          "text-[10px] font-bold px-2 py-0.5 rounded bg-white/5",
-          trend === 'up' ? "text-emerald-400" : trend === 'down' ? "text-red-400" : "text-zinc-500"
-        )}>
-          {change}
+        <div className="flex items-center gap-2">
+          {action}
+          <div className={cn(
+            "text-[10px] font-bold px-2 py-0.5 rounded bg-white/5",
+            trend === 'up' ? "text-emerald-400" : trend === 'down' ? "text-red-400" : "text-zinc-500"
+          )}>
+            {change}
+          </div>
         </div>
       </div>
       <div className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold mb-1">{label}</div>

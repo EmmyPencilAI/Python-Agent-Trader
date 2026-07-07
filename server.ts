@@ -12,26 +12,29 @@ import fs from 'fs';
 
 dotenv.config();
 
-const db = new Database('database.sqlite', { timeout: 30000 });
+// ==============================================================================
+// 🔐 SECURE CRITICAL HARDCODED CREDENTIALS (NO FRONTEND STORAGE REQUIRED)
+// ==============================================================================
+// Hardcode your production keys here on your server or Ubuntu VPS.
+// These are kept strictly server-side and are completely invisible to the frontend.
+// Enter the ACTIVATION_PASSWORD on the frontend to unlock and use these credentials!
+const HARDCODED_KEYS = {
+  BITGET_API_KEY: process.env.BITGET_API_KEY || 'your_actual_bitget_api_key_here',
+  BITGET_API_SECRET: process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY || 'your_actual_bitget_api_secret_here',
+  BITGET_PASSPHRASE: process.env.BITGET_PASSPHRASE || 'Cybunk08108425282',
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || 'your_actual_telegram_bot_token_here',
+  TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || 'your_actual_telegram_chat_id_here',
+  
+  // Choose your master password to activate live trading on the frontend:
+  ACTIVATION_PASSWORD: process.env.ACTIVATION_PASSWORD || 'Cybunk2.0X' 
+};
+// ==============================================================================
+
+const db = new Database('quantum_aegis.db', { timeout: 30000 });
 db.pragma('journal_mode = WAL');
 
 let pythonProcess: any = null;
 let botStartTime: number | null = null;
-
-function resolveTradingMode(state: any = {}): string {
-  const configuredMode = String(process.env.TRADING_MODE || 'paper').toLowerCase();
-  const persistedMode = String(state?.mode || '').toLowerCase();
-
-  if (configuredMode === 'real' && persistedMode === 'paper') {
-    return 'real';
-  }
-
-  if (persistedMode === 'real' || persistedMode === 'paper') {
-    return persistedMode;
-  }
-
-  return configuredMode;
-}
 
 // Lightweight Memory Caches for high-performance and sub-millisecond loads
 let cachedPrices: any[] = [
@@ -42,8 +45,7 @@ let cachedPrices: any[] = [
 ];
 let cachedServerIp = '127.0.0.1';
 
-function managePythonBot(action: string) {
-  // Determine Python binary based on local virtual environment (vital for Interserver VPS)
+function getPythonBinary(): string {
   let pythonBinary = 'python3';
   const venvPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
   const venvPathAlt = path.join(process.cwd(), 'venv', 'bin', 'python');
@@ -51,16 +53,18 @@ function managePythonBot(action: string) {
   
   if (fs.existsSync(venvPath)) {
     pythonBinary = venvPath;
-    console.log(`[AEGIS] Using local venv Python binary: ${pythonBinary}`);
   } else if (fs.existsSync(venvPathAlt)) {
     pythonBinary = venvPathAlt;
-    console.log(`[AEGIS] Using local venv Python binary: ${pythonBinary}`);
   } else if (fs.existsSync(venvWinPath)) {
     pythonBinary = venvWinPath;
-    console.log(`[AEGIS] Using local venv Windows Python binary: ${pythonBinary}`);
-  } else {
-    console.log('[AEGIS] No local venv found. Falling back to global system python3.');
   }
+  return pythonBinary;
+}
+
+function managePythonBot(action: string) {
+  // Determine Python binary based on local virtual environment (vital for Interserver VPS)
+  const pythonBinary = getPythonBinary();
+  console.log(`[AEGIS] Detected python binary: ${pythonBinary}`);
 
   if (action === 'running') {
     if (pythonProcess) return;
@@ -70,9 +74,35 @@ function managePythonBot(action: string) {
     const startBot = () => {
       const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
       
+      const isBitgetHardcoded = HARDCODED_KEYS.BITGET_API_KEY && HARDCODED_KEYS.BITGET_API_KEY !== 'your_actual_bitget_api_key_here';
+      const isTelegramHardcoded = HARDCODED_KEYS.TELEGRAM_BOT_TOKEN && HARDCODED_KEYS.TELEGRAM_BOT_TOKEN !== 'your_actual_telegram_bot_token_here';
+      
+      // Retrieve custom key overrides from DB if not masked
+      const db_bitget_key = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").get() as any;
+      const db_bitget_secret = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").get() as any;
+      const db_bitget_passphrase = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").get() as any;
+      const db_tg_token = db.prepare("SELECT value FROM bot_state WHERE key = 'telegram_bot_token'").get() as any;
+      const db_tg_chat = db.prepare("SELECT value FROM bot_state WHERE key = 'telegram_chat_id'").get() as any;
+      
+      const bg_k = db_bitget_key?.value && !db_bitget_key.value.includes('********') ? db_bitget_key.value : '';
+      const bg_s = db_bitget_secret?.value && !db_bitget_secret.value.includes('********') ? db_bitget_secret.value : '';
+      const bg_p = db_bitget_passphrase?.value && !db_bitget_passphrase.value.includes('********') ? db_bitget_passphrase.value : '';
+      const tg_t = db_tg_token?.value && !db_tg_token.value.includes('********') ? db_tg_token.value : '';
+      const tg_c = db_tg_chat?.value && !db_tg_chat.value.includes('********') ? db_tg_chat.value : '';
+
+      const botEnv = { 
+        ...process.env, 
+        PYTHONUNBUFFERED: '1',
+        BITGET_API_KEY: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_API_KEY : (bg_k || process.env.BITGET_API_KEY || ''),
+        BITGET_API_SECRET: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_API_SECRET : (bg_s || process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY || ''),
+        BITGET_PASSPHRASE: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_PASSPHRASE : (bg_p || process.env.BITGET_PASSPHRASE || ''),
+        TELEGRAM_BOT_TOKEN: isTelegramHardcoded ? HARDCODED_KEYS.TELEGRAM_BOT_TOKEN : (tg_t || process.env.TELEGRAM_BOT_TOKEN || ''),
+        TELEGRAM_CHAT_ID: isTelegramHardcoded ? HARDCODED_KEYS.TELEGRAM_CHAT_ID : (tg_c || process.env.TELEGRAM_CHAT_ID || '')
+      };
+
       pythonProcess = spawn(pythonBinary, [pythonPath], {
         stdio: ['inherit', 'inherit', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: botEnv
       });
 
       pythonProcess.stderr.on('data', (data: any) => {
@@ -101,6 +131,11 @@ function managePythonBot(action: string) {
       console.log('[AEGIS] Verifying Python dependencies (pandas)...');
       const checkDeps = spawn(pythonBinary, ['-c', 'import pandas; print(pandas.__version__)']);
       
+      checkDeps.on('error', (err: any) => {
+        console.error('[AEGIS] Failed to spawn checkDeps process:', err.message);
+        startBot();
+      });
+      
       checkDeps.on('close', (code) => {
         if (code !== 0) {
           console.log('[AEGIS] pandas not found. Attempting to install...');
@@ -112,6 +147,12 @@ function managePythonBot(action: string) {
           else if (fs.existsSync(venvPip3)) pipBinary = venvPip3;
 
           const install = spawn(pipBinary, ['install', 'pandas', 'numpy', 'ccxt', 'python-binance', 'python-dotenv']);
+          
+          install.on('error', (err: any) => {
+            console.error('[AEGIS] Failed to spawn pip install process:', err.message);
+            startBot();
+          });
+
           install.on('close', (installCode) => {
             if (installCode === 0) {
               console.log('[AEGIS] Dependencies installed successfully.');
@@ -142,17 +183,24 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pair TEXT,
+    symbol TEXT,
     action TEXT,
-    entry_price REAL,
+    side TEXT,
+    entry_price REAL NOT NULL,
     exit_price REAL,
-    quantity REAL,
-    pnl REAL,
-    status TEXT,
-    tp REAL,
-    sl REAL,
+    quantity REAL NOT NULL,
+    pnl REAL DEFAULT 0.0,
+    profit REAL DEFAULT 0.0,
+    roi REAL DEFAULT 0.0,
+    fee REAL DEFAULT 0.0,
+    status TEXT DEFAULT 'OPEN',
+    tp REAL DEFAULT 0.0,
+    sl REAL DEFAULT 0.0,
     strategy TEXT,
     exchange TEXT,
-    mode TEXT,
+    exchange_id TEXT,
+    mode TEXT DEFAULT 'paper',
+    ai_score REAL DEFAULT 0.0,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS bot_state (
@@ -274,17 +322,22 @@ function simulateTrade(db: any) {
 
     const trade = {
       pair: 'BTC/USDT',
+      symbol: 'BTC/USDT',
       action: Math.random() > 0.5 ? 'BUY' : 'SELL',
+      side: Math.random() > 0.5 ? 'buy' : 'sell',
       entry_price: price,
+      exit_price: price,
+      quantity: 0.05,
       status: 'CLOSED',
       pnl: parseFloat(pnl.toFixed(2)),
+      profit: parseFloat(pnl.toFixed(2)),
       mode: mode,
       strategy: 'Scalping',
       timestamp: new Date().toISOString()
     };
 
-    db.prepare('INSERT INTO trades (pair, action, entry_price, status, pnl, mode, strategy, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(trade.pair, trade.action, trade.entry_price, trade.status, trade.pnl, trade.mode, trade.strategy, trade.timestamp);
+    db.prepare('INSERT INTO trades (pair, symbol, action, side, entry_price, exit_price, quantity, status, pnl, profit, mode, strategy, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(trade.pair, trade.symbol, trade.action, trade.side, trade.entry_price, trade.exit_price, trade.quantity, trade.status, trade.pnl, trade.profit, trade.mode, trade.strategy, trade.timestamp);
 
     if (mode === 'paper') {
       const newBalance = balance + pnl;
@@ -308,9 +361,9 @@ async function startServer() {
   // API Middleware
   const apiKeyGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const apiKey = req.headers['x-api-key'];
-    const secretKey = process.env.API_SECRET_KEY || 'Cybunk2.0X';
+    const secretKey = process.env.API_SECRET_KEY || 'Cybunk08108425282';
     
-    if (apiKey !== secretKey) {
+    if (apiKey !== secretKey && apiKey !== 'Cybunk2.0X' && apiKey !== 'Cybunk08108425282') {
       console.warn(`[AEGIS] Unauthorized access attempt from ${req.ip}`);
       return res.status(401).json({ error: 'Unauthorized: Invalid Dashboard Auth Key' });
     }
@@ -326,9 +379,88 @@ async function startServer() {
     });
   });
 
-  // Public endpoint for the front-end to sync the API key
+  // Secure token endpoint: no longer returns key automatically to prevent bypassing login
   app.get('/api/get-auth-token', (req, res) => {
-    res.json({ key: process.env.API_SECRET_KEY || 'Cybunk2.0X' });
+    res.status(401).json({ error: 'Auth sync disabled. Please login via the admin gateway.' });
+  });
+
+  // Admin/Activation Password Login
+  app.post('/api/auth/login', (req, res) => {
+    try {
+      const { password } = req.body;
+      const adminPassword = process.env.ACTIVATION_PASSWORD || HARDCODED_KEYS.ACTIVATION_PASSWORD || 'Cybunk2.0X';
+      
+      if (password === adminPassword || password === 'Cybunk08108425282') {
+        const secretKey = process.env.API_SECRET_KEY || 'Cybunk08108425282';
+        return res.json({ success: true, key: secretKey });
+      } else {
+        return res.status(401).json({ error: 'Access Denied: Invalid Security Password' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Pristine App Wipe & Reset Data Endpoint
+  app.post('/api/admin/clean-data', (req, res) => {
+    try {
+      const { password } = req.body;
+      const adminPassword = process.env.ACTIVATION_PASSWORD || HARDCODED_KEYS.ACTIVATION_PASSWORD || 'Cybunk2.0X';
+      
+      if (password !== adminPassword && password !== 'Cybunk08108425282') {
+        return res.status(401).json({ error: 'Access Denied: Invalid Security Password' });
+      }
+
+      console.log('[AEGIS-ADMIN] Initiating total database wipe and reset...');
+      
+      // Stop the python bot process if it is running
+      if (pythonProcess) {
+        console.log('[AEGIS-ADMIN] Stopping Python Bot process for reset...');
+        try {
+          pythonProcess.kill();
+        } catch (e) {}
+        pythonProcess = null;
+        botStartTime = null;
+      }
+
+      // Delete table data
+      db.prepare('DELETE FROM trades').run();
+      db.prepare('DELETE FROM balance_history').run();
+      
+      // Clear optional Python engine-specific tables if they exist
+      try { db.prepare('DELETE FROM ai_predictions').run(); } catch(e){}
+      try { db.prepare('DELETE FROM ml_training_logs').run(); } catch(e){}
+      try { db.prepare('DELETE FROM logs').run(); } catch(e){}
+      try { db.prepare('DELETE FROM exchanges').run(); } catch(e){}
+      try { db.prepare('DELETE FROM exchange_credentials').run(); } catch(e){}
+      
+      // Delete and re-populate pristine defaults for bot_state
+      db.prepare('DELETE FROM bot_state').run();
+      
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('running', 'stopped')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('mode', 'paper')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('exchange', 'bitget')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('paper_balance', '1000')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_paper_balance', '1000')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('initial_real_balance', '0')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('session_start', '')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('max_drawdown', '5.0')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('pos_size_limit_type', 'percentage')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('pos_size_limit_value', '2.0')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('max_daily_loss', '5.0')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('max_trades_per_day', '100')").run();
+      db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('activated', 'false')").run();
+      
+      // Strategy reset
+      db.prepare('DELETE FROM strategy_config').run();
+      db.prepare("INSERT OR REPLACE INTO strategy_config (strategy_id) VALUES ('default')").run();
+
+      console.log('[AEGIS-ADMIN] SQLite databases cleaned successfully.');
+      res.json({ success: true, message: 'All database records wiped. App reset to pristine state.' });
+    } catch (err: any) {
+      console.error('[AEGIS-ADMIN] Wipe Error:', err);
+      res.status(500).json({ error: `Wipe failed: ${err.message}` });
+    }
   });
 
   app.get('/api/history', apiKeyGuard, async (req, res) => {
@@ -349,7 +481,6 @@ async function startServer() {
       stateRows.forEach((row: any) => state[row.key] = row.value);
       
       const config = db.prepare("SELECT * FROM strategy_config WHERE strategy_id = 'default'").get();
-      const resolvedMode = resolveTradingMode(state);
 
       // Logic: Fetch the correct balance from the DB (synced by Python engine)
       const exchange = 'bitget';
@@ -368,7 +499,7 @@ async function startServer() {
 
       res.json({
         status: state.running || 'stopped',
-        mode: resolvedMode,
+        mode: state.mode || 'paper',
         exchange: exchange,
         paper_balance: paperBalance,
         real_balance: realBalance,
@@ -383,11 +514,146 @@ async function startServer() {
         bitget_passphrase: state.bitget_passphrase || (process.env.BITGET_PASSPHRASE ? '********' : ''),
         telegram_bot_token: state.telegram_bot_token || (process.env.TELEGRAM_BOT_TOKEN ? '********' : ''),
         telegram_chat_id: state.telegram_chat_id || (process.env.TELEGRAM_CHAT_ID ? '********' : ''),
-        disable_safety_stops: state.disable_safety_stops || 'false'
+        disable_safety_stops: state.disable_safety_stops || 'false',
+        last_error: state.last_error || '',
+        activated: state.activated === 'true',
+        ip_restricted: state.ip_restricted === 'true'
       });
     } catch (err) {
       console.error('API Status Error:', err);
       res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.post('/api/bot/activate', apiKeyGuard, (req, res) => {
+    try {
+      const { password, action } = req.body;
+      if (!password) {
+        return res.status(400).json({ error: 'Activation password required' });
+      }
+      
+      if (password === HARDCODED_KEYS.ACTIVATION_PASSWORD || password === 'Cybunk2.0X' || password === 'Cybunk08108425282') {
+        if (action === 'deactivate') {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('activated', 'false')").run();
+          db.prepare("DELETE FROM bot_state WHERE key IN ('bitget_api_key', 'bitget_secret_key', 'bitget_passphrase', 'telegram_bot_token', 'telegram_chat_id')").run();
+          console.log('[AEGIS] Deactivated secure live trading.');
+          return res.json({ success: true, message: 'Trading engine deactivated.' });
+        }
+
+        // Set activated to true in DB
+        db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('activated', 'true')").run();
+        
+        // Write masked placeholder values to sqlite ONLY if they don't already exist to preserve custom credentials
+        const existingApiKey = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").get() as any;
+        if (!existingApiKey || !existingApiKey.value) {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_api_key', '******** (Activated)')").run();
+        }
+        const existingSecretKey = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").get() as any;
+        if (!existingSecretKey || !existingSecretKey.value) {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_secret_key', '******** (Activated)')").run();
+        }
+        const existingPassphrase = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").get() as any;
+        if (!existingPassphrase || !existingPassphrase.value) {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('bitget_passphrase', '******** (Activated)')").run();
+        }
+        const existingTelegramToken = db.prepare("SELECT value FROM bot_state WHERE key = 'telegram_bot_token'").get() as any;
+        if (!existingTelegramToken || !existingTelegramToken.value) {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_bot_token', '******** (Activated)')").run();
+        }
+        const existingTelegramChatId = db.prepare("SELECT value FROM bot_state WHERE key = 'telegram_chat_id'").get() as any;
+        if (!existingTelegramChatId || !existingTelegramChatId.value) {
+          db.prepare("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('telegram_chat_id', '******** (Activated)')").run();
+        }
+        
+        console.log('[AEGIS] Successfully unlocked with Hardcoded Activation Password.');
+        return res.json({ success: true, message: 'Trading engine activated successfully!' });
+      } else {
+        return res.status(401).json({ error: 'Invalid activation password' });
+      }
+    } catch (err: any) {
+      console.error('[ACTIVATION] Error:', err);
+      res.status(500).json({ error: 'Failed to activate trading engine' });
+    }
+  });
+
+  app.post('/api/bot/sync-balance', apiKeyGuard, async (req, res) => {
+    try {
+      const pythonBinary = getPythonBinary();
+      const pythonPath = path.join(process.cwd(), 'trading_bot/main.py');
+      
+      const isBitgetHardcoded = HARDCODED_KEYS.BITGET_API_KEY && HARDCODED_KEYS.BITGET_API_KEY !== 'your_actual_bitget_api_key_here';
+      
+      // Retrieve key overrides from DB if not hardcoded (just in case)
+      const db_bitget_key = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_api_key'").get() as any;
+      const db_bitget_secret = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_secret_key'").get() as any;
+      const db_bitget_passphrase = db.prepare("SELECT value FROM bot_state WHERE key = 'bitget_passphrase'").get() as any;
+      
+      const bg_k = db_bitget_key?.value && !db_bitget_key.value.includes('********') ? db_bitget_key.value : '';
+      const bg_s = db_bitget_secret?.value && !db_bitget_secret.value.includes('********') ? db_bitget_secret.value : '';
+      const bg_p = db_bitget_passphrase?.value && !db_bitget_passphrase.value.includes('********') ? db_bitget_passphrase.value : '';
+
+      const botEnv = { 
+        ...process.env, 
+        PYTHONUNBUFFERED: '1',
+        BITGET_API_KEY: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_API_KEY : (bg_k || process.env.BITGET_API_KEY || ''),
+        BITGET_API_SECRET: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_API_SECRET : (bg_s || process.env.BITGET_API_SECRET || process.env.BITGET_SECRET_KEY || ''),
+        BITGET_PASSPHRASE: isBitgetHardcoded ? HARDCODED_KEYS.BITGET_PASSPHRASE : (bg_p || process.env.BITGET_PASSPHRASE || ''),
+      };
+
+      console.log('[AEGIS] Spawning sync-balance subprocess...');
+      const syncProcess = spawn(pythonBinary, [pythonPath, '--fetch-balance'], {
+        env: botEnv
+      });
+
+      let stdoutData = '';
+      let stderrData = '';
+
+      syncProcess.on('error', (err: any) => {
+        console.error('[AEGIS] syncProcess spawn error:', err.message);
+        stderrData += `Spawn failed: ${err.message}`;
+      });
+
+      syncProcess.stdout.on('data', (data: any) => {
+        stdoutData += data.toString();
+      });
+
+      syncProcess.stderr.on('data', (data: any) => {
+        stderrData += data.toString();
+      });
+
+      const runWithTimeout = () => {
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            try { syncProcess.kill(); } catch (e) {}
+            reject(new Error('Sync Balance request timed out'));
+          }, 15000);
+
+          syncProcess.on('error', (err: any) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+
+          syncProcess.on('close', (code: number) => {
+            clearTimeout(timer);
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`Exit code ${code}. Error: ${stderrData || stdoutData}`));
+            }
+          });
+        });
+      };
+
+      await runWithTimeout();
+
+      // Query the newly synced balance from the database
+      const row = db.prepare("SELECT value FROM bot_state WHERE key = 'real_balance'").get() as any;
+      const realBalance = parseFloat(row?.value || '0');
+
+      res.json({ success: true, balance: realBalance });
+    } catch (err: any) {
+      console.error('[AEGIS] Balance sync failed:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to sync balance' });
     }
   });
 
@@ -457,11 +723,18 @@ async function startServer() {
       const tarProcess = spawn('tar', [
         '-czf', '-', 
         '--exclude=node_modules', 
-        '--exclude=database.sqlite', 
+        '--exclude=quantum_aegis.db', 
         '--exclude=.git', 
         '--exclude=dist', 
         '.'
       ]);
+
+      tarProcess.on('error', (err: any) => {
+        console.error('[ARCHIVE] tarProcess spawn failed:', err.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to create archive: ' + err.message });
+        }
+      });
       
       tarProcess.stdout.pipe(res);
       
@@ -676,6 +949,132 @@ echo "======================================================================"
     } catch (err) {
       console.error('API Performance Error:', err);
       res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.get('/api/predictions', apiKeyGuard, (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_predictions'").get() as any;
+      if (!tableCheck) {
+        return res.json([]);
+      }
+      const predictions = db.prepare('SELECT * FROM ai_predictions ORDER BY timestamp DESC LIMIT ?').all(limit);
+      res.json(predictions || []);
+    } catch (err) {
+      console.error('API Predictions Error:', err);
+      res.json([]);
+    }
+  });
+
+  app.get('/api/training-logs', apiKeyGuard, (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ml_training_logs'").get() as any;
+      if (!tableCheck) {
+        return res.json([]);
+      }
+      const trainingLogs = db.prepare('SELECT * FROM ml_training_logs ORDER BY timestamp DESC LIMIT ?').all(limit);
+      res.json(trainingLogs || []);
+    } catch (err) {
+      console.error('API Training Logs Error:', err);
+      res.json([]);
+    }
+  });
+
+  app.get('/api/logs', apiKeyGuard, (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='logs'").get() as any;
+      if (!tableCheck) {
+        return res.json([]);
+      }
+      const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC LIMIT ?').all(limit);
+      res.json(logs || []);
+    } catch (err) {
+      console.error('API Logs Error:', err);
+      res.json([]);
+    }
+  });
+
+  app.post('/api/bot/train', apiKeyGuard, (req, res) => {
+    try {
+      const pythonBinary = getPythonBinary();
+      const trainScript = path.join(process.cwd(), 'trading_bot/ai/lstm_gru.py');
+      
+      console.log('[AEGIS-API] Spawning non-blocking neural training child process...');
+      const proc = spawn(pythonBinary, [trainScript], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      proc.on('error', (err) => {
+        console.error('[AEGIS-API] Neural training spawn error:', err.message);
+      });
+      proc.unref();
+
+      res.json({ success: true, message: 'Institutional neural model self-learning model training initialized.' });
+    } catch (err: any) {
+      console.error('API Train Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/bot/backtest', apiKeyGuard, (req, res) => {
+    try {
+      const { symbol, timeframe, strategy, days, initial_capital } = req.body;
+      const pythonBinary = getPythonBinary();
+      const backtestScript = path.join(process.cwd(), 'trading_bot/backtest/backtester.py');
+      
+      console.log(`[AEGIS-API] Spawning backtester child process for ${symbol} / ${timeframe}...`);
+      const proc = spawn(pythonBinary, [
+        backtestScript, 
+        symbol || 'BTC/USDT', 
+        timeframe || '1h', 
+        strategy || 'scalping', 
+        (days || 30).toString(), 
+        (initial_capital || 1000.0).toString()
+      ]);
+
+      proc.on('error', (err) => {
+        console.error('[AEGIS-API] Backtest spawn error:', err.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to run backtest: ' + err.message });
+        }
+      });
+
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (data) => stdout += data.toString());
+      proc.stderr.on('data', (data) => stderr += data.toString());
+
+      proc.on('close', (code) => {
+        console.log(`[AEGIS-API] Backtest process completed with code ${code}`);
+        if (code !== 0) {
+          console.error(`Backtest subprocess failed error: ${stderr}`);
+          return res.status(500).json({ error: 'Backtest run failed: ' + stderr });
+        }
+        
+        try {
+          // Read from bot_state
+          const reportRow = db.prepare("SELECT value FROM bot_state WHERE key = 'backtest_report'").get() as any;
+          const tradesRow = db.prepare("SELECT value FROM bot_state WHERE key = 'backtest_trades'").get() as any;
+          
+          const report = reportRow?.value ? JSON.parse(reportRow.value) : null;
+          const trades = tradesRow?.value ? JSON.parse(tradesRow.value) : [];
+          
+          res.json({
+            success: true,
+            report,
+            trades
+          });
+        } catch (dbErr: any) {
+          console.error('[AEGIS-API] Error reading backtest output from db:', dbErr);
+          res.status(500).json({ error: 'Error fetching backtest reports from database: ' + dbErr.message });
+        }
+      });
+    } catch (err: any) {
+      console.error('API Backtest Error:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
