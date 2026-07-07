@@ -505,6 +505,7 @@ export default function App() {
   };
 
   const syncAppData = async () => {
+    let loadedStatusData: any = null;
     try {
       const [statusRes, tradesRes, pricesRes, perfRes] = await Promise.all([
         apiFetch(`/api/status`).catch(() => null),
@@ -516,12 +517,13 @@ export default function App() {
       if (statusRes && statusRes.status === 401) {
         setIsAuthorized(false);
         setIsInitialLoading(false);
-        return;
+        return null;
       } else {
         setIsAuthorized(true);
       }
       
       const statusData = await safeJson(statusRes, {});
+      loadedStatusData = statusData;
       const tradesData = await safeJson(tradesRes, []);
       const perfData = await safeJson(perfRes, { total_trades: 0 });
       let pricesData: Record<string, number> = {};
@@ -616,6 +618,7 @@ export default function App() {
     } finally {
       setIsInitialLoading(false);
     }
+    return loadedStatusData;
   };
 
   // Synchronize API secret key on initial mount
@@ -772,6 +775,11 @@ export default function App() {
             console.error("Settings refresh sync error", e);
           }
           addNotification('success', `Protocol mode locked: ${value.toUpperCase()}`);
+          if (value === 'real') {
+            setTimeout(() => {
+              syncRealBalance('real');
+            }, 300);
+          }
         }
         if (field === 'exchange') {
           setActiveExchange(value);
@@ -823,8 +831,9 @@ export default function App() {
     }
   };
 
-  const syncRealBalance = async () => {
-    if (tradingMode !== 'real') {
+  const syncRealBalance = async (forcedMode?: 'real' | 'paper') => {
+    const currentMode = forcedMode || tradingMode;
+    if (currentMode !== 'real') {
       addNotification('info', 'Balance sync is only required for Live/Real Trading Mode.');
       return;
     }
@@ -923,11 +932,15 @@ export default function App() {
     return (
       <GatewayLogin 
         BASE_URL={BASE_URL}
-        onSuccess={(key) => {
+        onSuccess={async (key) => {
           localStorage.setItem('aegis_api_key', key);
           setApiKey(key);
           setIsAuthorized(true);
-          syncAppData();
+          const latestStatus = await syncAppData();
+          if (latestStatus && latestStatus.mode === 'real') {
+            addNotification('info', 'Activating live Bitget wallet sync...');
+            syncRealBalance('real');
+          }
         }}
       />
     );
